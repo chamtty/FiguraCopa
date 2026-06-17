@@ -7,6 +7,33 @@ import fs from 'fs'
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
 
+// ── Carrega fontes para embutir no SVG (resolve problema de fontes no Vercel) ──
+function loadFontBase64(pkg: string, file: string): string {
+  try {
+    const p = path.join(process.cwd(), 'node_modules', pkg, 'files', file)
+    return fs.readFileSync(p).toString('base64')
+  } catch {
+    return ''
+  }
+}
+
+const FONT_BEBAS = loadFontBase64('@fontsource/bebas-neue', 'bebas-neue-latin-400-normal.woff2')
+const FONT_OPEN  = loadFontBase64('@fontsource/open-sans',  'open-sans-latin-400-normal.woff2')
+
+function fontFaceStyles(): string {
+  const styles: string[] = []
+  if (FONT_BEBAS) styles.push(
+    `@font-face { font-family: 'BebasNeue'; src: url('data:font/woff2;base64,${FONT_BEBAS}') format('woff2'); }`
+  )
+  if (FONT_OPEN) styles.push(
+    `@font-face { font-family: 'OpenSans'; src: url('data:font/woff2;base64,${FONT_OPEN}') format('woff2'); }`
+  )
+  return styles.join('\n')
+}
+
+const NOME_FONT  = FONT_BEBAS ? 'BebasNeue' : 'Impact, Arial Black, sans-serif'
+const INFO_FONT  = FONT_OPEN  ? 'OpenSans'  : 'Arial, Helvetica, sans-serif'
+
 // ================================================================
 // LAYOUT DO TEMPLATE — ajuste se os textos não ficarem na posição certa
 // Todos os valores são porcentagens (0 a 1) da largura/altura do template
@@ -135,6 +162,8 @@ Retorne somente o JSON, sem texto adicional.`,
 
     // ── SVG com textos da figurinha ────────────────────────────
     const textSvg = `<svg width="${tw}" height="${th}" xmlns="http://www.w3.org/2000/svg">
+      <defs><style>${fontFaceStyles()}</style></defs>
+
       <!-- Cobre o texto original da faixa -->
       <rect x="${faixaLeft}" y="${faixaTop}" width="${faixaW}" height="${faixaH}"
         fill="${LAYOUT.faixa.cor}" />
@@ -142,9 +171,8 @@ Retorne somente o JSON, sem texto adicional.`,
       <!-- Nome do jogador -->
       <text
         x="${tw / 2}" y="${nomeY}"
-        font-family="Impact, 'Arial Black', 'Arial Bold', Helvetica, sans-serif"
+        font-family="${NOME_FONT}"
         font-size="${nomeFontSize}"
-        font-weight="bold"
         fill="white"
         text-anchor="middle"
         dominant-baseline="middle"
@@ -154,7 +182,7 @@ Retorne somente o JSON, sem texto adicional.`,
       <!-- Data | Altura | Peso -->
       <text
         x="${tw / 2}" y="${infoY}"
-        font-family="Arial, Helvetica, sans-serif"
+        font-family="${INFO_FONT}"
         font-size="${infoFontSize}"
         fill="white"
         text-anchor="middle"
@@ -164,7 +192,7 @@ Retorne somente o JSON, sem texto adicional.`,
       <!-- Clube -->
       <text
         x="${tw / 2}" y="${clubeY}"
-        font-family="Arial, Helvetica, sans-serif"
+        font-family="${INFO_FONT}"
         font-size="${infoFontSize}"
         fill="white"
         text-anchor="middle"
