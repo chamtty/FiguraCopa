@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { put } from '@vercel/blob'
 import sharp from 'sharp'
-import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
+// @napi-rs/canvas é carregado via require() dinâmico para evitar erro de webpack no build
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type CanvasModule = typeof import('@napi-rs/canvas')
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const canvas = require('@napi-rs/canvas') as CanvasModule
+const { createCanvas, GlobalFonts } = canvas
 import path from 'path'
 import fs from 'fs'
 
