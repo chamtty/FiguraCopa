@@ -2,28 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { put } from '@vercel/blob'
 import sharp from 'sharp'
+import satori from 'satori'
+import { createElement } from 'react'
 import path from 'path'
 import fs from 'fs'
-// @napi-rs/canvas carregado com require para evitar análise estática do webpack/tsc
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-const { createCanvas, GlobalFonts } = require('@napi-rs/canvas') as any
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
 
-// ── Registro de fontes (executado uma vez no cold start) ───────
-;(function registerFonts() {
-  const entries = [
-    { pkg: '@fontsource/bebas-neue', file: 'bebas-neue-latin-400-normal.woff2', family: 'BebasNeue' },
-    { pkg: '@fontsource/open-sans',  file: 'open-sans-latin-400-normal.woff2',  family: 'OpenSans'  },
-    { pkg: '@fontsource/open-sans',  file: 'open-sans-latin-700-normal.woff2',  family: 'OpenSans'  },
-  ]
-  for (const e of entries) {
-    try {
-      const p = path.join(process.cwd(), 'node_modules', e.pkg, 'files', e.file)
-      if (fs.existsSync(p)) GlobalFonts.registerFromPath(p, e.family)
-    } catch { /* ignora */ }
+// ── Carrega fontes para o satori (executado uma vez no cold start) ─
+function loadFont(pkg: string, file: string): ArrayBuffer | null {
+  try {
+    const p = path.join(process.cwd(), 'node_modules', pkg, 'files', file)
+    const buf = fs.readFileSync(p)
+    // Converte Node Buffer → ArrayBuffer limpo
+    const ab = new ArrayBuffer(buf.length)
+    new Uint8Array(ab).set(buf)
+    return ab
+  } catch {
+    return null
   }
-})()
+}
+
+const FONT_BEBAS = loadFont('@fontsource/bebas-neue', 'bebas-neue-latin-400-normal.woff2')
+const FONT_OPEN  = loadFont('@fontsource/open-sans',  'open-sans-latin-400-normal.woff2')
+
+type SatoriFont = { name: string; data: ArrayBuffer; weight: 400; style: 'normal' }
+
+function getFonts(): SatoriFont[] {
+  const fonts: SatoriFont[] = []
+  if (FONT_BEBAS) fonts.push({ name: 'BebasNeue', data: FONT_BEBAS, weight: 400, style: 'normal' })
+  if (FONT_OPEN)  fonts.push({ name: 'OpenSans',  data: FONT_OPEN,  weight: 400, style: 'normal' })
+  return fonts
+}
 
 // ================================================================
 // LAYOUT DO TEMPLATE — ajuste se os textos não ficarem na posição certa
@@ -37,7 +47,7 @@ const LAYOUT = {
   faixa: {
     topPercent:    0.705,  // onde começa a cobertura da faixa azul
     heightPercent: 0.26,   // altura da cobertura
-    cor: 'rgb(11, 18, 78)', // cor da faixa — ajuste se necessário
+    cor: 'rgb(11,18,78)',  // cor da faixa — ajuste se necessário
   },
   nome:  { yPercent: 0.775, fontSizePercent: 0.062 },
   info:  { yPercent: 0.845, fontSizePercent: 0.038 }, // data | altura | peso
@@ -47,73 +57,107 @@ const LAYOUT = {
 
 export const maxDuration = 30
 
-// ── Renderiza faixa + textos via canvas (sem dependência de fontes do sistema) ──
-function buildTextBuffer(
+// ── Satori: faixa + textos → SVG com paths (sem fontes do sistema) ──
+async function buildTextSvg(
   tw: number, th: number,
   nome: string, infoStr: string, clube: string,
-): Buffer {
-  const canvas = createCanvas(tw, th)
-  const ctx    = canvas.getContext('2d')
-
-  ctx.clearRect(0, 0, tw, th)
-
-  // Cobre o texto original do template com retângulo azul escuro
-  const faixaTop  = Math.floor(th * LAYOUT.faixa.topPercent)
-  const faixaH    = Math.floor(th * LAYOUT.faixa.heightPercent)
-  const faixaLeft = Math.floor(tw * 0.02)
-  const faixaW    = Math.floor(tw * 0.96)
-
-  ctx.fillStyle = LAYOUT.faixa.cor
-  ctx.fillRect(faixaLeft, faixaTop, faixaW, faixaH)
-
+): Promise<Buffer> {
   const nomeFontSize = Math.round(tw * LAYOUT.nome.fontSizePercent)
   const infoFontSize = Math.round(tw * LAYOUT.info.fontSizePercent)
+  const nomeFamily   = FONT_BEBAS ? 'BebasNeue' : 'sans-serif'
+  const infoFamily   = FONT_OPEN  ? 'OpenSans'  : 'sans-serif'
 
-  ctx.textAlign    = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillStyle    = 'white'
+  // Posições Y: yPercent aponta pro meio do texto, ajustamos subtraindo metade do lineHeight
+  const nomeTop  = Math.floor(th * LAYOUT.nome.yPercent)  - Math.round(nomeFontSize * 0.55)
+  const infoTop  = Math.floor(th * LAYOUT.info.yPercent)  - Math.round(infoFontSize * 0.55)
+  const clubeTop = Math.floor(th * LAYOUT.clube.yPercent) - Math.round(infoFontSize * 0.55)
 
-  // Nome — Bebas Neue
-  ctx.font = `${nomeFontSize}px BebasNeue, Impact, sans-serif`
-  ctx.fillText(nome.toUpperCase(), tw / 2, Math.floor(th * LAYOUT.nome.yPercent))
+  const svg = await satori(
+    createElement('div', {
+      style: { display: 'flex', position: 'relative', width: tw, height: th },
+    },
+      // Faixa azul escura (cobre texto original do template)
+      createElement('div', {
+        style: {
+          position: 'absolute',
+          top:    Math.floor(th * LAYOUT.faixa.topPercent),
+          left:   Math.floor(tw * 0.02),
+          width:  Math.floor(tw * 0.96),
+          height: Math.floor(th * LAYOUT.faixa.heightPercent),
+          background: LAYOUT.faixa.cor,
+        },
+      }),
+      // Nome do jogador
+      createElement('div', {
+        style: {
+          position: 'absolute',
+          top: nomeTop, left: 0, width: tw,
+          display: 'flex', justifyContent: 'center',
+          fontSize: nomeFontSize,
+          fontFamily: nomeFamily,
+          color: 'white',
+          letterSpacing: 1,
+        },
+      }, nome.toUpperCase()),
+      // Data | Altura | Peso
+      createElement('div', {
+        style: {
+          position: 'absolute',
+          top: infoTop, left: 0, width: tw,
+          display: 'flex', justifyContent: 'center',
+          fontSize: infoFontSize,
+          fontFamily: infoFamily,
+          color: 'white',
+        },
+      }, infoStr),
+      // Clube
+      createElement('div', {
+        style: {
+          position: 'absolute',
+          top: clubeTop, left: 0, width: tw,
+          display: 'flex', justifyContent: 'center',
+          fontSize: infoFontSize,
+          fontFamily: infoFamily,
+          color: 'white',
+        },
+      }, clube.toUpperCase()),
+    ),
+    { width: tw, height: th, fonts: getFonts() },
+  )
 
-  // Data | Altura | Peso — Open Sans
-  ctx.font = `${infoFontSize}px OpenSans, Arial, sans-serif`
-  ctx.fillText(infoStr, tw / 2, Math.floor(th * LAYOUT.info.yPercent))
-
-  // Clube
-  ctx.font = `${infoFontSize}px OpenSans, Arial, sans-serif`
-  ctx.fillText(clube.toUpperCase(), tw / 2, Math.floor(th * LAYOUT.clube.yPercent))
-
-  return canvas.toBuffer('image/png') as Buffer
+  return Buffer.from(svg)
 }
 
-// ── Renderiza watermark PREVIEW via canvas ─────────────────────
-function buildWatermarkBuffer(tw: number, th: number): Buffer {
-  const canvas = createCanvas(tw, th)
-  const ctx    = canvas.getContext('2d')
-
-  ctx.clearRect(0, 0, tw, th)
-
+// ── Satori: watermark PREVIEW ──────────────────────────────────
+async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   const wFontSize = Math.round(tw * 0.13)
-  ctx.font         = `bold ${wFontSize}px BebasNeue, Impact, sans-serif`
-  ctx.fillStyle    = 'rgba(255,255,255,0.28)'
-  ctx.textAlign    = 'center'
-  ctx.textBaseline = 'middle'
+  const family    = FONT_BEBAS ? 'BebasNeue' : 'sans-serif'
 
-  const deg = -38 * (Math.PI / 180)
-  const drawRotated = (x: number, y: number) => {
-    ctx.save()
-    ctx.translate(x, y)
-    ctx.rotate(deg)
-    ctx.fillText('PREVIEW', 0, 0)
-    ctx.restore()
-  }
+  const previewEl = (top: number) =>
+    createElement('div', {
+      style: {
+        position: 'absolute',
+        top, left: 0, width: tw,
+        display: 'flex', justifyContent: 'center',
+        fontSize: wFontSize,
+        fontFamily: family,
+        fontWeight: 'bold',
+        color: 'rgba(255,255,255,0.28)',
+        transform: 'rotate(-38deg)',
+      },
+    }, 'PREVIEW')
 
-  drawRotated(tw / 2, th * 0.30)
-  drawRotated(tw / 2, th * 0.60)
+  const svg = await satori(
+    createElement('div', {
+      style: { display: 'flex', position: 'relative', width: tw, height: th },
+    },
+      previewEl(Math.floor(th * 0.18)),
+      previewEl(Math.floor(th * 0.48)),
+    ),
+    { width: tw, height: th, fonts: getFonts() },
+  )
 
-  return canvas.toBuffer('image/png') as Buffer
+  return Buffer.from(svg)
 }
 
 export async function POST(req: NextRequest) {
@@ -132,7 +176,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Dados incompletos' }, { status: 400 })
     }
 
-    // Buffer da foto enviada
     const photoBuffer = Buffer.from(await photoFile.arrayBuffer())
 
     // ── Detectar rosto com Gemini ──────────────────────────────
@@ -155,7 +198,6 @@ Retorne somente o JSON, sem texto adicional.`,
       const match = text.match(/\{[\s\S]*?\}/)
       if (match) {
         const parsed = JSON.parse(match[0])
-        // Validação básica dos valores
         if (
           typeof parsed.x === 'number' && typeof parsed.y === 'number' &&
           typeof parsed.w === 'number' && typeof parsed.h === 'number' &&
@@ -165,7 +207,6 @@ Retorne somente o JSON, sem texto adicional.`,
         }
       }
     } catch {
-      // Continua com o fallback — não bloqueia a geração
       console.warn('[gerar] Gemini face detection falhou, usando crop padrão')
     }
 
@@ -174,7 +215,7 @@ Retorne somente o JSON, sem texto adicional.`,
     if (!fs.existsSync(templatePath)) {
       return NextResponse.json(
         { error: 'Template não encontrado em /public/template.png' },
-        { status: 500 }
+        { status: 500 },
       )
     }
 
@@ -201,21 +242,23 @@ Retorne somente o JSON, sem texto adicional.`,
     // ── Formatar dados para exibição ───────────────────────────
     const alturaNum = parseFloat(altura)
     const alturaStr = alturaNum > 3
-      ? `${(alturaNum / 100).toFixed(2)}m`  // se veio em cm (ex: 142)
-      : `${alturaNum}m`                      // se veio em m (ex: 1.42)
+      ? `${(alturaNum / 100).toFixed(2)}m`  // veio em cm (ex: 142)
+      : `${alturaNum}m`                      // veio em m  (ex: 1.42)
 
     const nascimento = `${pad(dia)}-${pad(mes)}-${ano}`
     const infoStr    = `${nascimento} | ${alturaStr} | ${peso}kg`
 
-    // ── Gerar buffers de texto e watermark via canvas ──────────
-    const textBuffer      = buildTextBuffer(tw, th, nome, infoStr, clube)
-    const watermarkBuffer = buildWatermarkBuffer(tw, th)
+    // ── Gerar SVGs via satori (texto vira paths — sem fontes do sistema) ─
+    const [textSvg, watermarkSvg] = await Promise.all([
+      buildTextSvg(tw, th, nome, infoStr, clube),
+      buildWatermarkSvg(tw, th),
+    ])
 
-    // ── Versão limpa (sem watermark) → salva no Vercel Blob ───
+    // ── Versão limpa (sem watermark) → Vercel Blob ────────────
     const cleanImage = await sharp(templateBuf)
       .composite([
-        { input: userPhoto,  top: 0, left: 0 },
-        { input: textBuffer, top: 0, left: 0 },
+        { input: userPhoto, top: 0, left: 0 },
+        { input: textSvg,   top: 0, left: 0 },
       ])
       .jpeg({ quality: 90 })
       .toBuffer()
@@ -226,9 +269,9 @@ Retorne somente o JSON, sem texto adicional.`,
       addRandomSuffix: false,
     })
 
-    // ── Versão com watermark → retorna como base64 pro preview ─
+    // ── Versão com watermark → preview base64 ─────────────────
     const previewImage = await sharp(cleanImage)
-      .composite([{ input: watermarkBuffer, top: 0, left: 0 }])
+      .composite([{ input: watermarkSvg, top: 0, left: 0 }])
       .jpeg({ quality: 88 })
       .toBuffer()
 
@@ -241,7 +284,7 @@ Retorne somente o JSON, sem texto adicional.`,
     console.error('[gerar]', err)
     return NextResponse.json(
       { error: 'Erro ao gerar a figurinha. Tente novamente.' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
