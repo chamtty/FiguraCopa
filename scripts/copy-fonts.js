@@ -19,16 +19,25 @@ const fonts = [
   },
 ]
 
+function isWoff1(buf) {
+  // WOFF1 magic bytes: "wOFF" (0x774F4646)
+  // WOFF2 magic bytes: "wOF2" (0x774F4632)
+  return buf.length >= 4 &&
+    buf[0] === 0x77 && buf[1] === 0x4F && buf[2] === 0x46 && buf[3] === 0x46
+}
+
 async function download(url, dst) {
-  if (fs.existsSync(dst)) {
-    console.log(`✓ ${path.basename(dst)} (já existe)`)
-    return
-  }
+  // Sempre re-baixa para garantir que não há arquivo WOFF2 residual
+  console.log(`→ Baixando ${path.basename(dst)}...`)
   const res = await fetch(url)
   if (!res.ok) throw new Error(`HTTP ${res.status} ao baixar ${url}`)
   const buf = Buffer.from(await res.arrayBuffer())
+  if (!isWoff1(buf)) {
+    const sig = buf.slice(0, 4).toString('ascii')
+    throw new Error(`Formato inválido (esperado WOFF1, recebeu "${sig}") em ${url}`)
+  }
   fs.writeFileSync(dst, buf)
-  console.log(`✓ ${path.basename(dst)} baixado (${Math.round(buf.length / 1024)}KB)`)
+  console.log(`✓ ${path.basename(dst)} OK — WOFF1 confirmado (${Math.round(buf.length / 1024)}KB)`)
 }
 
 async function main() {

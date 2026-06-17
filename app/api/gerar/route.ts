@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     // ── Gemini: gera figurinha ─────────────────────────────────
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-preview-image-generation',
+      model: 'gemini-2.0-flash-exp',
     })
 
     const prompt = `Você é um editor de imagens. Vou te dar duas imagens:
