@@ -9,135 +9,29 @@ import fs from 'fs'
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
 
-// ── Carrega fontes para o satori (executado uma vez no cold start) ─
-// O prebuild copia de node_modules/@fontsource → public/fonts/
-// Em produção (Vercel) lemos de public/fonts/; em dev lemos de node_modules como fallback
-function loadFont(publicFile: string, pkg: string, pkgFile: string): ArrayBuffer | null {
-  const candidates = [
-    path.join(process.cwd(), 'public', 'fonts', publicFile),
-    path.join(process.cwd(), 'node_modules', pkg, 'files', pkgFile),
-  ]
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) {
-        const buf = fs.readFileSync(p)
-        const ab  = new ArrayBuffer(buf.length)
-        new Uint8Array(ab).set(buf)
-        return ab
-      }
-    } catch { /* tenta próximo */ }
-  }
+// ── Fontes para o watermark PREVIEW ───────────────────────────
+function loadFont(publicFile: string): ArrayBuffer | null {
+  const p = path.join(process.cwd(), 'public', 'fonts', publicFile)
+  try {
+    if (fs.existsSync(p)) {
+      const buf = fs.readFileSync(p)
+      const ab  = new ArrayBuffer(buf.length)
+      new Uint8Array(ab).set(buf)
+      return ab
+    }
+  } catch { /* ignora */ }
   return null
 }
 
-// public/fonts/*.woff são baixados pelo prebuild (WOFF1 — satori não suporta WOFF2)
-// fallback para node_modules usa também .woff (requer @fontsource v4 localmente)
-const FONT_BEBAS = loadFont('bebas-neue.woff', '@fontsource/bebas-neue', 'bebas-neue-latin-400-normal.woff')
-const FONT_OPEN  = loadFont('open-sans.woff',  '@fontsource/open-sans',  'open-sans-latin-400-normal.woff')
+const FONT_BEBAS = loadFont('bebas-neue.woff')
 
 type SatoriFont = { name: string; data: ArrayBuffer; weight: 400; style: 'normal' }
-
 function getFonts(): SatoriFont[] {
   const fonts: SatoriFont[] = []
   if (FONT_BEBAS) fonts.push({ name: 'BebasNeue', data: FONT_BEBAS, weight: 400, style: 'normal' })
-  if (FONT_OPEN)  fonts.push({ name: 'OpenSans',  data: FONT_OPEN,  weight: 400, style: 'normal' })
   return fonts
 }
 
-// ================================================================
-// LAYOUT DO TEMPLATE — ajuste se os textos não ficarem na posição certa
-// Todos os valores são porcentagens (0 a 1) da largura/altura do template
-// ================================================================
-const LAYOUT = {
-  foto: {
-    topPercent:    0.00,   // início da área da foto (topo do card)
-    heightPercent: 0.70,   // a foto ocupa 70% da altura total
-  },
-  faixa: {
-    topPercent:    0.705,  // onde começa a cobertura da faixa azul
-    heightPercent: 0.26,   // altura da cobertura
-    cor: 'rgb(11,18,78)',  // cor da faixa — ajuste se necessário
-  },
-  nome:  { yPercent: 0.775, fontSizePercent: 0.062 },
-  info:  { yPercent: 0.845, fontSizePercent: 0.038 }, // data | altura | peso
-  clube: { yPercent: 0.905, fontSizePercent: 0.038 },
-}
-// ================================================================
-
-export const maxDuration = 30
-
-// ── Satori: faixa + textos → SVG com paths (sem fontes do sistema) ──
-async function buildTextSvg(
-  tw: number, th: number,
-  nome: string, infoStr: string, clube: string,
-): Promise<Buffer> {
-  const nomeFontSize = Math.round(tw * LAYOUT.nome.fontSizePercent)
-  const infoFontSize = Math.round(tw * LAYOUT.info.fontSizePercent)
-  const nomeFamily   = FONT_BEBAS ? 'BebasNeue' : 'sans-serif'
-  const infoFamily   = FONT_OPEN  ? 'OpenSans'  : 'sans-serif'
-
-  // Posições Y: yPercent aponta pro meio do texto, ajustamos subtraindo metade do lineHeight
-  const nomeTop  = Math.floor(th * LAYOUT.nome.yPercent)  - Math.round(nomeFontSize * 0.55)
-  const infoTop  = Math.floor(th * LAYOUT.info.yPercent)  - Math.round(infoFontSize * 0.55)
-  const clubeTop = Math.floor(th * LAYOUT.clube.yPercent) - Math.round(infoFontSize * 0.55)
-
-  const svg = await satori(
-    createElement('div', {
-      style: { display: 'flex', position: 'relative', width: tw, height: th },
-    },
-      // Faixa azul escura (cobre texto original do template)
-      createElement('div', {
-        style: {
-          position: 'absolute',
-          top:    Math.floor(th * LAYOUT.faixa.topPercent),
-          left:   Math.floor(tw * 0.02),
-          width:  Math.floor(tw * 0.96),
-          height: Math.floor(th * LAYOUT.faixa.heightPercent),
-          background: LAYOUT.faixa.cor,
-        },
-      }),
-      // Nome do jogador
-      createElement('div', {
-        style: {
-          position: 'absolute',
-          top: nomeTop, left: 0, width: tw,
-          display: 'flex', justifyContent: 'center',
-          fontSize: nomeFontSize,
-          fontFamily: nomeFamily,
-          color: 'white',
-          letterSpacing: 1,
-        },
-      }, nome.toUpperCase()),
-      // Data | Altura | Peso
-      createElement('div', {
-        style: {
-          position: 'absolute',
-          top: infoTop, left: 0, width: tw,
-          display: 'flex', justifyContent: 'center',
-          fontSize: infoFontSize,
-          fontFamily: infoFamily,
-          color: 'white',
-        },
-      }, infoStr),
-      // Clube
-      createElement('div', {
-        style: {
-          position: 'absolute',
-          top: clubeTop, left: 0, width: tw,
-          display: 'flex', justifyContent: 'center',
-          fontSize: infoFontSize,
-          fontFamily: infoFamily,
-          color: 'white',
-        },
-      }, clube.toUpperCase()),
-    ),
-    { width: tw, height: th, fonts: getFonts() },
-  )
-
-  return Buffer.from(svg)
-}
-
-// ── Satori: watermark PREVIEW ──────────────────────────────────
 async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   const wFontSize = Math.round(tw * 0.13)
   const family    = FONT_BEBAS ? 'BebasNeue' : 'sans-serif'
@@ -145,12 +39,9 @@ async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   const previewEl = (top: number) =>
     createElement('div', {
       style: {
-        position: 'absolute',
-        top, left: 0, width: tw,
+        position: 'absolute', top, left: 0, width: tw,
         display: 'flex', justifyContent: 'center',
-        fontSize: wFontSize,
-        fontFamily: family,
-        fontWeight: 'bold',
+        fontSize: wFontSize, fontFamily: family, fontWeight: 'bold',
         color: 'rgba(255,255,255,0.28)',
         transform: 'rotate(-38deg)',
       },
@@ -165,9 +56,10 @@ async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
     ),
     { width: tw, height: th, fonts: getFonts() },
   )
-
   return Buffer.from(svg)
 }
+
+export const maxDuration = 60 // Gemini image generation pode levar até ~30s
 
 export async function POST(req: NextRequest) {
   try {
@@ -185,100 +77,86 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Dados incompletos' }, { status: 400 })
     }
 
-    const photoBuffer = Buffer.from(await photoFile.arrayBuffer())
-
-    // ── Detectar rosto com Gemini ──────────────────────────────
-    let cropData = { x: 5, y: 0, w: 90, h: 85 } // fallback genérico
-    try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
-      const b64   = photoBuffer.toString('base64')
-      const mime  = (photoFile.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp'
-
-      const result = await model.generateContent([
-        { inlineData: { data: b64, mimeType: mime } },
-        `Encontre a pessoa principal nesta imagem.
-Retorne APENAS um objeto JSON com as coordenadas de recorte para mostrar o rosto e parte superior do corpo (incluindo ombros), com boa margem acima da cabeça.
-Formato: {"x": numero, "y": numero, "w": numero, "h": numero}
-Onde x e y são o canto superior esquerdo, w e h são largura e altura — todos como porcentagem (0-100) da imagem total.
-Retorne somente o JSON, sem texto adicional.`,
-      ])
-
-      const text  = result.response.text().trim()
-      const match = text.match(/\{[\s\S]*?\}/)
-      if (match) {
-        const parsed = JSON.parse(match[0])
-        if (
-          typeof parsed.x === 'number' && typeof parsed.y === 'number' &&
-          typeof parsed.w === 'number' && typeof parsed.h === 'number' &&
-          parsed.w > 5 && parsed.h > 5
-        ) {
-          cropData = parsed
-        }
-      }
-    } catch {
-      console.warn('[gerar] Gemini face detection falhou, usando crop padrão')
-    }
-
-    // ── Carregar template ──────────────────────────────────────
-    const templatePath = path.join(process.cwd(), 'public', 'template.png')
-    if (!fs.existsSync(templatePath)) {
-      return NextResponse.json(
-        { error: 'Template não encontrado em /public/template.png' },
-        { status: 500 },
-      )
-    }
-
-    const templateBuf = fs.readFileSync(templatePath)
-    const { width: TW, height: TH } = await sharp(templateBuf).metadata()
-    const tw = TW!, th = TH!
-
-    // ── Recortar e redimensionar foto do usuário ───────────────
-    const { width: PW, height: PH } = await sharp(photoBuffer).metadata()
-    const pw = PW!, ph = PH!
-
-    const cx = clamp(Math.floor((cropData.x / 100) * pw), 0, pw - 2)
-    const cy = clamp(Math.floor((cropData.y / 100) * ph), 0, ph - 2)
-    const cw = clamp(Math.floor((cropData.w / 100) * pw), 1, pw - cx)
-    const ch = clamp(Math.floor((cropData.h / 100) * ph), 1, ph - cy)
-
-    const fotoH = Math.floor(th * LAYOUT.foto.heightPercent)
-
-    const userPhoto = await sharp(photoBuffer)
-      .extract({ left: cx, top: cy, width: cw, height: ch })
-      .resize(tw, fotoH, { fit: 'cover', position: 'top' })
-      .toBuffer()
-
-    // ── Formatar dados para exibição ───────────────────────────
+    // ── Formatar dados ─────────────────────────────────────────
     const alturaNum = parseFloat(altura)
     const alturaStr = alturaNum > 3
-      ? `${(alturaNum / 100).toFixed(2)}m`  // veio em cm (ex: 142)
-      : `${alturaNum}m`                      // veio em m  (ex: 1.42)
+      ? `${(alturaNum / 100).toFixed(2)}m`
+      : `${alturaNum}m`
+    const nascimento = `${dia.padStart(2,'0')}/${mes.padStart(2,'0')}/${ano}`
 
-    const nascimento = `${pad(dia)}-${pad(mes)}-${ano}`
-    const infoStr    = `${nascimento} | ${alturaStr} | ${peso}kg`
+    // ── Carregar template e foto ───────────────────────────────
+    const templatePath = path.join(process.cwd(), 'public', 'template.png')
+    if (!fs.existsSync(templatePath)) {
+      return NextResponse.json({ error: 'Template não encontrado' }, { status: 500 })
+    }
+    const templateB64 = fs.readFileSync(templatePath).toString('base64')
+    const photoBuffer = Buffer.from(await photoFile.arrayBuffer())
+    const photoB64    = photoBuffer.toString('base64')
+    const photoMime   = (photoFile.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp'
 
-    // ── Gerar SVGs via satori (texto vira paths — sem fontes do sistema) ─
-    const [textSvg, watermarkSvg] = await Promise.all([
-      buildTextSvg(tw, th, nome, infoStr, clube),
-      buildWatermarkSvg(tw, th),
-    ])
+    // ── Gemini: gera figurinha ─────────────────────────────────
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-preview-image-generation',
+    })
 
-    // ── Versão limpa (sem watermark) → Vercel Blob ────────────
-    const cleanImage = await sharp(templateBuf)
-      .composite([
-        { input: userPhoto, top: 0, left: 0 },
-        { input: textSvg,   top: 0, left: 0 },
-      ])
+    const prompt = `Você é um editor de imagens. Vou te dar duas imagens:
+1. Uma figurinha oficial da Copa 2026 (template com jogador)
+2. A foto da pessoa que deve aparecer na figurinha
+
+Sua tarefa é gerar uma nova figurinha Copa 2026 com:
+- O ROSTO e CORPO da SEGUNDA IMAGEM (a pessoa enviada), no lugar do jogador original
+- O mesmo fundo verde/teal da Copa 2026, os números "26", logos da Copa e FIFA, bandeira brasileira — TODOS preservados exatamente
+- A FAIXA AZUL ESCURA na parte inferior com o seguinte texto (exato, sem alterar formatação):
+  Linha 1 (nome, letras grandes): ${nome.toUpperCase()}
+  Linha 2: ${nascimento} | ${alturaStr} | ${peso}kg
+  Linha 3: ${clube.toUpperCase()}
+- Estilo visual de figurinha Panini oficial
+
+Retorne APENAS a imagem da figurinha, sem texto adicional.`
+
+    const result = await model.generateContent({
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: 'image/png', data: templateB64 } },
+          { inlineData: { mimeType: photoMime,   data: photoB64   } },
+        ],
+      }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } as any,
+    })
+
+    // ── Extrair imagem gerada ──────────────────────────────────
+    const parts    = result.response.candidates?.[0]?.content?.parts ?? []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const imgPart  = parts.find((p: any) => p.inlineData?.data)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const imgData  = (imgPart as any)?.inlineData?.data as string | undefined
+
+    if (!imgData) {
+      console.error('[gerar] Gemini não retornou imagem. Parts:', JSON.stringify(parts))
+      return NextResponse.json({ error: 'A IA não conseguiu gerar a figurinha. Tente novamente.' }, { status: 500 })
+    }
+
+    const generatedBuf = Buffer.from(imgData, 'base64')
+
+    // ── Normalizar tamanho para o template original ────────────
+    const { width: TW, height: TH } = await sharp(fs.readFileSync(templatePath)).metadata()
+    const cleanImage = await sharp(generatedBuf)
+      .resize(TW!, TH!, { fit: 'cover' })
       .jpeg({ quality: 90 })
       .toBuffer()
 
+    // ── Salvar versão limpa no Vercel Blob ─────────────────────
     const id = crypto.randomUUID()
     await put(`figurinhas/${id}.jpg`, cleanImage, {
       access: 'public',
       addRandomSuffix: false,
     })
 
-    // ── Versão com watermark → preview base64 ─────────────────
+    // ── Adicionar watermark PREVIEW ────────────────────────────
+    const watermarkSvg = await buildWatermarkSvg(TW!, TH!)
     const previewImage = await sharp(cleanImage)
       .composite([{ input: watermarkSvg, top: 0, left: 0 }])
       .jpeg({ quality: 88 })
@@ -296,13 +174,4 @@ Retorne somente o JSON, sem texto adicional.`,
       { status: 500 },
     )
   }
-}
-
-// ── Helpers ────────────────────────────────────────────────────
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
-}
-
-function pad(n: string): string {
-  return n.padStart(2, '0')
 }
