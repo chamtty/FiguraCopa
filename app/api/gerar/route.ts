@@ -10,21 +10,28 @@ import fs from 'fs'
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
 
 // ── Carrega fontes para o satori (executado uma vez no cold start) ─
-function loadFont(pkg: string, file: string): ArrayBuffer | null {
-  try {
-    const p = path.join(process.cwd(), 'node_modules', pkg, 'files', file)
-    const buf = fs.readFileSync(p)
-    // Converte Node Buffer → ArrayBuffer limpo
-    const ab = new ArrayBuffer(buf.length)
-    new Uint8Array(ab).set(buf)
-    return ab
-  } catch {
-    return null
+// O prebuild copia de node_modules/@fontsource → public/fonts/
+// Em produção (Vercel) lemos de public/fonts/; em dev lemos de node_modules como fallback
+function loadFont(publicFile: string, pkg: string, pkgFile: string): ArrayBuffer | null {
+  const candidates = [
+    path.join(process.cwd(), 'public', 'fonts', publicFile),
+    path.join(process.cwd(), 'node_modules', pkg, 'files', pkgFile),
+  ]
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const buf = fs.readFileSync(p)
+        const ab  = new ArrayBuffer(buf.length)
+        new Uint8Array(ab).set(buf)
+        return ab
+      }
+    } catch { /* tenta próximo */ }
   }
+  return null
 }
 
-const FONT_BEBAS = loadFont('@fontsource/bebas-neue', 'bebas-neue-latin-400-normal.woff2')
-const FONT_OPEN  = loadFont('@fontsource/open-sans',  'open-sans-latin-400-normal.woff2')
+const FONT_BEBAS = loadFont('bebas-neue.woff2', '@fontsource/bebas-neue', 'bebas-neue-latin-400-normal.woff2')
+const FONT_OPEN  = loadFont('open-sans.woff2',  '@fontsource/open-sans',  'open-sans-latin-400-normal.woff2')
 
 type SatoriFont = { name: string; data: ArrayBuffer; weight: 400; style: 'normal' }
 
