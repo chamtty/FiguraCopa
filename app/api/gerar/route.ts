@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 import { put } from '@vercel/blob'
 import sharp from 'sharp'
 import satori from 'satori'
@@ -7,7 +7,7 @@ import { createElement } from 'react'
 import path from 'path'
 import fs from 'fs'
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!)
+const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! })
 
 // ── Fontes para o watermark PREVIEW ───────────────────────────
 function loadFont(publicFile: string): ArrayBuffer | null {
@@ -59,7 +59,7 @@ async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   return Buffer.from(svg)
 }
 
-export const maxDuration = 60 // Gemini image generation pode levar até ~30s
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
@@ -95,26 +95,23 @@ export async function POST(req: NextRequest) {
     const photoMime   = (photoFile.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp'
 
     // ── Gemini: gera figurinha ─────────────────────────────────
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp',
-    })
-
     const prompt = `Você é um editor de imagens. Vou te dar duas imagens:
-1. Uma figurinha oficial da Copa 2026 (template com jogador)
+1. Uma figurinha da Copa 2026 com uma silhueta/área em branco para o rosto
 2. A foto da pessoa que deve aparecer na figurinha
 
 Sua tarefa é gerar uma nova figurinha Copa 2026 com:
-- O ROSTO e CORPO da SEGUNDA IMAGEM (a pessoa enviada), no lugar do jogador original
-- O mesmo fundo verde/teal da Copa 2026, os números "26", logos da Copa e FIFA, bandeira brasileira — TODOS preservados exatamente
-- A FAIXA AZUL ESCURA na parte inferior com o seguinte texto (exato, sem alterar formatação):
+- O ROSTO e CORPO da SEGUNDA IMAGEM colocado na área da silhueta da PRIMEIRA IMAGEM
+- Todos os elementos do fundo (cores, logos Copa 2026, FIFA, bandeira brasileira, "26") preservados exatamente
+- A FAIXA na parte inferior com o seguinte texto:
   Linha 1 (nome, letras grandes): ${nome.toUpperCase()}
   Linha 2: ${nascimento} | ${alturaStr} | ${peso}kg
   Linha 3: ${clube.toUpperCase()}
 - Estilo visual de figurinha Panini oficial
 
-Retorne APENAS a imagem da figurinha, sem texto adicional.`
+Retorne APENAS a imagem da figurinha gerada.`
 
-    const result = await model.generateContent({
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash-preview-image-generation',
       contents: [{
         role: 'user',
         parts: [
@@ -123,16 +120,17 @@ Retorne APENAS a imagem da figurinha, sem texto adicional.`
           { inlineData: { mimeType: photoMime,   data: photoB64   } },
         ],
       }],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } as any,
+      config: {
+        responseModalities: ['IMAGE', 'TEXT'],
+      },
     })
 
     // ── Extrair imagem gerada ──────────────────────────────────
-    const parts    = result.response.candidates?.[0]?.content?.parts ?? []
+    const parts   = response.candidates?.[0]?.content?.parts ?? []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const imgPart  = parts.find((p: any) => p.inlineData?.data)
+    const imgPart = parts.find((p: any) => p.inlineData?.data)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const imgData  = (imgPart as any)?.inlineData?.data as string | undefined
+    const imgData = (imgPart as any)?.inlineData?.data as string | undefined
 
     if (!imgData) {
       console.error('[gerar] Gemini não retornou imagem. Parts:', JSON.stringify(parts))
