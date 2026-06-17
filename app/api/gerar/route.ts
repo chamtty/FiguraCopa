@@ -30,8 +30,10 @@ function loadFont(publicFile: string, pkg: string, pkgFile: string): ArrayBuffer
   return null
 }
 
-const FONT_BEBAS = loadFont('bebas-neue.woff2', '@fontsource/bebas-neue', 'bebas-neue-latin-400-normal.woff2')
-const FONT_OPEN  = loadFont('open-sans.woff2',  '@fontsource/open-sans',  'open-sans-latin-400-normal.woff2')
+// public/fonts/*.woff são baixados pelo prebuild (WOFF1 — satori não suporta WOFF2)
+// fallback para node_modules usa também .woff (requer @fontsource v4 localmente)
+const FONT_BEBAS = loadFont('bebas-neue.woff', '@fontsource/bebas-neue', 'bebas-neue-latin-400-normal.woff')
+const FONT_OPEN  = loadFont('open-sans.woff',  '@fontsource/open-sans',  'open-sans-latin-400-normal.woff')
 
 type SatoriFont = { name: string; data: ArrayBuffer; weight: 400; style: 'normal' }
 
