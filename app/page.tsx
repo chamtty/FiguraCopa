@@ -50,7 +50,7 @@ function SocialPopup() {
 }
 
 // ── Galeria de imagens ────────────────────────────────────────
-const DEPOIMENTOS = ['/depoimentos/1.jpg','/depoimentos/2.jpg','/depoimentos/3.jpg','/depoimentos/4.jpg','/depoimentos/5.jpg']
+const DEPOIMENTOS = ['/depoimentos/1.png','/depoimentos/2.png','/depoimentos/3.png','/depoimentos/4.png','/depoimentos/5.png','/depoimentos/6.png']
 const GALERIA     = ['/galeria/1.jpg','/galeria/2.jpg','/galeria/3.jpg','/galeria/4.jpg','/galeria/5.jpg','/galeria/6.jpg']
 
 function HScrollRow({ items, width }: { items: string[]; width: number }) {

@@ -121,8 +121,8 @@ function ProgressBar({ step }: { step: Step }) {
 
 // ── Carrossel de depoimentos ──────────────────────────────────
 const DEPOIMENTOS = [
-  '/depoimentos/1.jpg', '/depoimentos/2.jpg', '/depoimentos/3.jpg',
-  '/depoimentos/4.jpg', '/depoimentos/5.jpg',
+  '/depoimentos/1.png', '/depoimentos/2.png', '/depoimentos/3.png',
+  '/depoimentos/4.png', '/depoimentos/5.png', '/depoimentos/6.png',
 ]
 
 function TestimonialsCarousel() {
@@ -264,24 +264,52 @@ export default function CriarPage() {
           {/* AVISO */}
           {step === 'aviso' && (
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 44, marginBottom: 12 }}>⚠️</div>
-              <h2 style={{ fontSize: 19, fontWeight: 900, color: '#001C58', marginBottom: 14 }}>
-                AVISO IMPORTANTE
-              </h2>
-              <div style={{ background: '#fff7ed', border: '2px solid #fed7aa', borderRadius: 12, padding: '14px 16px', marginBottom: 22, textAlign: 'left' }}>
-                <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.65, margin: 0 }}>
-                  A foto precisa ser <strong>somente da pessoa</strong>, sem outras pessoas no enquadramento.
-                </p>
-                <br />
-                <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.85, margin: 0 }}>
-                  ✅ Rosto visível, de frente<br />
-                  ✅ Boa iluminação<br />
-                  ✅ Foto individual (só o craque!)<br />
-                  ❌ Sem outras pessoas na foto
-                </p>
+              {/* Badge AVISO */}
+              <div style={{
+                display: 'inline-block',
+                background: '#001C58',
+                color: 'white',
+                fontWeight: 900,
+                fontSize: 14,
+                letterSpacing: 2,
+                padding: '6px 24px',
+                borderRadius: 20,
+                marginBottom: 18,
+              }}>
+                AVISO
               </div>
+
+              {/* Foto de modelo */}
+              <div style={{
+                borderRadius: 16,
+                overflow: 'hidden',
+                marginBottom: 18,
+                border: '3px solid #001C58',
+                background: '#f3f4f6',
+                aspectRatio: '4/3',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <img
+                  src="/foto-modelo.jpg"
+                  alt="Exemplo de foto ideal"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  onError={(e) => {
+                    // Se a imagem não existir, esconde o container
+                    (e.currentTarget.parentElement as HTMLElement).style.display = 'none'
+                  }}
+                />
+              </div>
+
+              {/* Texto */}
+              <p style={{ fontSize: 15, color: '#111827', lineHeight: 1.65, marginBottom: 22, fontWeight: 500 }}>
+                A foto precisa ser <strong>somente da pessoa</strong>,{' '}
+                sem outras pessoas no enquadramento.
+              </p>
+
               <button style={btn()} onClick={() => setStep('upload')}>
-                ENTENDI, VAMOS LÁ →
+                ENTENDI
               </button>
             </div>
           )}
