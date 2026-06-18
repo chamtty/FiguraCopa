@@ -33,23 +33,62 @@ function getFonts(): SatoriFont[] {
 }
 
 async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
-  const wFontSize = Math.round(tw * 0.13)
+  const bigSize   = Math.round(tw * 0.10)
+  const smallSize = Math.round(tw * 0.032)
   const family    = FONT_BEBAS ? 'BebasNeue' : 'sans-serif'
-  const previewEl = (top: number) =>
+
+  // 6 linhas grandes de PREVIEW cobrindo a imagem
+  const bigFracs   = [0.04, 0.20, 0.37, 0.54, 0.70, 0.87]
+  // 5 linhas finas com URL intercaladas
+  const smallFracs = [0.12, 0.29, 0.46, 0.62, 0.79]
+
+  const bigEls = bigFracs.map((frac, i) =>
     createElement('div', {
+      key: `b${i}`,
       style: {
-        position: 'absolute', top, left: 0, width: tw,
-        display: 'flex', justifyContent: 'center',
-        fontSize: wFontSize, fontFamily: family, fontWeight: 'bold',
-        color: 'rgba(255,255,255,0.28)',
+        position: 'absolute',
+        top: Math.floor(th * frac),
+        left: -Math.round(tw * 0.18),
+        width: Math.round(tw * 1.36),
+        display: 'flex',
+        justifyContent: 'center',
+        fontSize: bigSize,
+        fontFamily: family,
+        fontWeight: 'bold',
+        color: 'rgba(255,255,255,0.21)',
         transform: 'rotate(-38deg)',
+        letterSpacing: Math.round(tw * 0.025),
+        whiteSpace: 'nowrap',
       },
-    }, 'PREVIEW')
+    }, 'PREVIEW  •  PREVIEW')
+  )
+
+  const smallEls = smallFracs.map((frac, i) =>
+    createElement('div', {
+      key: `s${i}`,
+      style: {
+        position: 'absolute',
+        top: Math.floor(th * frac),
+        left: -Math.round(tw * 0.12),
+        width: Math.round(tw * 1.24),
+        display: 'flex',
+        justifyContent: 'center',
+        fontSize: smallSize,
+        fontFamily: family,
+        color: 'rgba(255,255,255,0.24)',
+        transform: 'rotate(-38deg)',
+        letterSpacing: Math.round(tw * 0.012),
+        whiteSpace: 'nowrap',
+      },
+    }, 'figurinha-copa2026.com  •  figurinha-copa2026.com')
+  )
+
+  const allEls: ReturnType<typeof createElement>[] = [...bigEls, ...smallEls]
+
   const svg = await satori(
-    createElement('div', { style: { display: 'flex', position: 'relative', width: tw, height: th } },
-      previewEl(Math.floor(th * 0.18)),
-      previewEl(Math.floor(th * 0.48)),
-    ),
+    createElement('div', {
+      style: { display: 'flex', position: 'relative', width: tw, height: th, overflow: 'hidden' },
+    }, allEls as any),
     { width: tw, height: th, fonts: getFonts() },
   )
   return Buffer.from(svg)
