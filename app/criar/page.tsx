@@ -14,7 +14,6 @@ interface FormFields {
   altura: string
 }
 
-// Redimensiona a foto no cliente antes de enviar (mantém upload < 1MB)
 async function resizeImage(file: File, maxDim = 1200): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new window.Image()
@@ -26,34 +25,30 @@ async function resizeImage(file: File, maxDim = 1200): Promise<Blob> {
         else { w = Math.round((w * maxDim) / h); h = maxDim }
       }
       const canvas = document.createElement('canvas')
-      canvas.width = w
-      canvas.height = h
+      canvas.width = w; canvas.height = h
       canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
       URL.revokeObjectURL(url)
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error('Canvas error'))),
-        'image/jpeg',
-        0.85
-      )
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas error')), 'image/jpeg', 0.85)
     }
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Falha ao carregar imagem')) }
     img.src = url
   })
 }
 
-// ---- Estilos reutilizáveis ----
+// ── Estilos base ──────────────────────────────────────────────
 const card: React.CSSProperties = {
   background: 'white',
   borderRadius: 18,
-  padding: '26px 22px',
+  padding: '24px 18px',
   boxShadow: '0 4px 24px rgba(0,0,0,0.12)',
   width: '100%',
   maxWidth: 430,
   margin: '0 auto',
+  boxSizing: 'border-box',
 }
 
 function btn(disabled = false, variant: 'green' | 'yellow' | 'navy' | 'red' | 'ghost' = 'green'): React.CSSProperties {
-  const colors = {
+  const colors: Record<string, { bg: string; fg: string }> = {
     green:  { bg: '#009B3A', fg: 'white' },
     yellow: { bg: '#FFDB00', fg: '#001C58' },
     navy:   { bg: '#001C58', fg: 'white' },
@@ -62,33 +57,33 @@ function btn(disabled = false, variant: 'green' | 'yellow' | 'navy' | 'red' | 'g
   }
   return {
     width: '100%',
-    padding: '16px',
+    padding: '15px 12px',
     borderRadius: 12,
     border: 'none',
     cursor: disabled ? 'not-allowed' : 'pointer',
     fontWeight: 800,
-    fontSize: 16,
+    fontSize: 15,
     letterSpacing: 0.5,
     opacity: disabled ? 0.45 : 1,
     background: colors[variant].bg,
     color: colors[variant].fg,
-    transition: 'opacity 0.2s, transform 0.1s',
     textDecoration: 'none',
     display: 'block',
     textAlign: 'center',
     textTransform: 'uppercase',
+    boxSizing: 'border-box',
   }
 }
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  padding: '13px 14px',
+  padding: '12px 12px',
   borderRadius: 10,
   border: '2px solid #e5e7eb',
   fontSize: 15,
   color: '#111827',
   background: 'white',
-  transition: 'border-color 0.2s',
+  boxSizing: 'border-box',
 }
 
 const labelStyle: React.CSSProperties = {
@@ -99,7 +94,7 @@ const labelStyle: React.CSSProperties = {
   display: 'block',
 }
 
-// ---- Barra de progresso ----
+// ── Barra de progresso ────────────────────────────────────────
 function ProgressBar({ step }: { step: Step }) {
   const map: Record<Step, number> = { aviso: 0, upload: 25, dados: 50, loading: 75, preview: 100 }
   const pct = map[step]
@@ -116,117 +111,56 @@ function ProgressBar({ step }: { step: Step }) {
       </div>
       <div style={{ width: '100%', background: '#e5e7eb', height: 6, borderRadius: 3 }}>
         <div style={{
-          width: `${pct}%`,
-          height: '100%',
-          background: '#009B3A',
-          borderRadius: 3,
-          transition: 'width 0.4s ease',
+          width: `${pct}%`, height: '100%', background: '#009B3A',
+          borderRadius: 3, transition: 'width 0.4s ease',
         }} />
       </div>
     </div>
   )
 }
 
-// ---- Carrossel de depoimentos ----
+// ── Carrossel de depoimentos ──────────────────────────────────
 const DEPOIMENTOS = [
-  '/depoimentos/1.jpg',
-  '/depoimentos/2.jpg',
-  '/depoimentos/3.jpg',
-  '/depoimentos/4.jpg',
-  '/depoimentos/5.jpg',
+  '/depoimentos/1.jpg', '/depoimentos/2.jpg', '/depoimentos/3.jpg',
+  '/depoimentos/4.jpg', '/depoimentos/5.jpg',
 ]
 
 function TestimonialsCarousel() {
   const [current, setCurrent] = useState(0)
-  const [loaded, setLoaded] = useState<Record<number, boolean>>({})
   const [failed, setFailed] = useState<Record<number, boolean>>({})
 
-  // Auto-avança a cada 4 segundos
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrent(prev => (prev + 1) % DEPOIMENTOS.length)
-    }, 4000)
-    return () => clearInterval(timer)
+    const t = setInterval(() => setCurrent(p => (p + 1) % DEPOIMENTOS.length), 4000)
+    return () => clearInterval(t)
   }, [])
 
-  const prev = () => setCurrent(p => (p - 1 + DEPOIMENTOS.length) % DEPOIMENTOS.length)
-  const next = () => setCurrent(p => (p + 1) % DEPOIMENTOS.length)
-
-  // Filtra só imagens que carregaram (não falharam)
-  const visibleIndexes = DEPOIMENTOS.map((_, i) => i).filter(i => !failed[i])
-  if (visibleIndexes.length === 0) return null
+  const visible = DEPOIMENTOS.map((_, i) => i).filter(i => !failed[i])
+  if (visible.length === 0) return null
 
   return (
     <div style={{ marginTop: 32, paddingBottom: 8 }}>
       <h3 style={{
-        fontSize: 17,
-        fontWeight: 900,
-        color: '#001C58',
-        textTransform: 'uppercase',
-        letterSpacing: 1.5,
-        marginBottom: 16,
-        textAlign: 'center',
+        fontSize: 16, fontWeight: 900, color: '#001C58',
+        textTransform: 'uppercase', letterSpacing: 1.5,
+        marginBottom: 16, textAlign: 'center',
       }}>
         Depoimento de clientes:
       </h3>
-
-      <div style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', background: '#1a1a2e', minHeight: 200 }}>
-        {/* Imagens - apenas mostra a atual */}
+      <div style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', background: '#1a1a2e', minHeight: 160 }}>
         {DEPOIMENTOS.map((src, i) => (
-          <img
-            key={i}
-            src={src}
-            alt={`Depoimento ${i + 1}`}
-            onLoad={() => setLoaded(prev => ({ ...prev, [i]: true }))}
-            onError={() => setFailed(prev => ({ ...prev, [i]: true }))}
-            style={{
-              width: '100%',
-              display: i === current ? 'block' : 'none',
-              borderRadius: 18,
-            }}
+          <img key={i} src={src} alt={`Depoimento ${i + 1}`}
+            onError={() => setFailed(p => ({ ...p, [i]: true }))}
+            style={{ width: '100%', display: i === current ? 'block' : 'none', borderRadius: 18 }}
           />
         ))}
-
-        {/* Seta esquerda */}
-        <button
-          onClick={prev}
-          style={{
-            position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-            background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%',
-            width: 36, height: 36, cursor: 'pointer', color: 'white', fontSize: 20,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >‹</button>
-
-        {/* Seta direita */}
-        <button
-          onClick={next}
-          style={{
-            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-            background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%',
-            width: 36, height: 36, cursor: 'pointer', color: 'white', fontSize: 20,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >›</button>
-
-        {/* Dots */}
-        <div style={{
-          position: 'absolute', bottom: 10, left: 0, right: 0,
-          display: 'flex', justifyContent: 'center', gap: 6,
-        }}>
-          {DEPOIMENTOS.map((_, i) => (
-            !failed[i] && (
-              <button
-                key={i}
-                onClick={() => setCurrent(i)}
-                style={{
-                  width: i === current ? 22 : 8, height: 8,
-                  borderRadius: 4, border: 'none', cursor: 'pointer', padding: 0,
-                  background: i === current ? '#FFDB00' : 'rgba(255,255,255,0.5)',
-                  transition: 'all 0.3s',
-                }}
-              />
-            )
+        <button onClick={() => setCurrent(p => (p - 1 + DEPOIMENTOS.length) % DEPOIMENTOS.length)}
+          style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', color: 'white', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
+        <button onClick={() => setCurrent(p => (p + 1) % DEPOIMENTOS.length)}
+          style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', color: 'white', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>›</button>
+        <div style={{ position: 'absolute', bottom: 10, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6 }}>
+          {DEPOIMENTOS.map((_, i) => !failed[i] && (
+            <button key={i} onClick={() => setCurrent(i)}
+              style={{ width: i === current ? 22 : 8, height: 8, borderRadius: 4, border: 'none', cursor: 'pointer', padding: 0, background: i === current ? '#FFDB00' : 'rgba(255,255,255,0.5)', transition: 'all 0.3s' }} />
           ))}
         </div>
       </div>
@@ -234,32 +168,31 @@ function TestimonialsCarousel() {
   )
 }
 
-// ---- Contador de pessoas vendo ----
 function ViewerBadge() {
   const [count] = useState(() => Math.floor(Math.random() * 28) + 34)
   return (
     <div style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6,
-      background: 'rgba(255,255,255,0.15)', borderRadius: 20,
-      padding: '5px 14px', fontSize: 13, color: '#001C58', fontWeight: 700,
-      marginBottom: 16,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      fontSize: 13, color: '#001C58', fontWeight: 700, marginBottom: 16,
     }}>
-      🔴 <span>{count} pessoas estão vendo agora</span>
+      🔴 {count} pessoas estão vendo agora
     </div>
   )
 }
 
+// ── Página principal ──────────────────────────────────────────
 export default function CriarPage() {
   const [step, setStep] = useState<Step>('aviso')
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [form, setForm] = useState<FormFields>({
-    nome: '', dia: '', mes: '', ano: '', clube: '', peso: '', altura: '',
-  })
+  const [form, setForm] = useState<FormFields>({ nome: '', dia: '', mes: '', ano: '', clube: '', peso: '', altura: '' })
   const [figurinha, setFigurinha] = useState<string | null>(null)
   const [stickerId, setStickerId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
+
+  // Dois inputs separados: galeria e câmera
+  const galleryRef = useRef<HTMLInputElement>(null)
+  const cameraRef  = useRef<HTMLInputElement>(null)
 
   const setField = (k: keyof FormFields) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -297,53 +230,50 @@ export default function CriarPage() {
     }
   }
 
-  const isFormValid =
-    form.nome.trim() &&
-    form.dia && form.mes && form.ano &&
-    form.clube.trim() &&
-    form.peso && form.altura
-
+  const isFormValid = form.nome.trim() && form.dia && form.mes && form.ano && form.clube.trim() && form.peso && form.altura
   const baseCheckout = process.env.NEXT_PUBLIC_CHECKOUT_URL || '#'
-  const checkoutUrl = stickerId ? `${baseCheckout}?custom=${stickerId}` : baseCheckout
+  const checkoutUrl  = stickerId ? `${baseCheckout}?custom=${stickerId}` : baseCheckout
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) handleFile(f)
+    // reset para permitir re-seleção do mesmo arquivo
+    e.target.value = ''
+  }
 
   return (
     <div style={{
       minHeight: '100vh',
       background: '#FFDB00',
-      padding: '20px 16px 40px',
+      padding: '20px 14px 40px',
+      boxSizing: 'border-box',
+      overflowX: 'hidden',
     }}>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: 20 }}>
-        <h1 style={{ fontSize: 19, fontWeight: 900, color: '#001C58' }}>
+      <div style={{ textAlign: 'center', marginBottom: 18 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 900, color: '#001C58', margin: 0 }}>
           🏆 Figurinha da Copa 2026
         </h1>
       </div>
 
-      {/* Steps dentro do card branco (menos o preview) */}
+      {/* ── Steps (menos preview) ── */}
       {step !== 'preview' && (
         <div style={card}>
           <ProgressBar step={step} />
 
-          {/* ──────────── AVISO ──────────── */}
+          {/* AVISO */}
           {step === 'aviso' && (
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 44, marginBottom: 14 }}>⚠️</div>
-              <h2 style={{ fontSize: 20, fontWeight: 900, color: '#001C58', marginBottom: 14 }}>
+              <div style={{ fontSize: 44, marginBottom: 12 }}>⚠️</div>
+              <h2 style={{ fontSize: 19, fontWeight: 900, color: '#001C58', marginBottom: 14 }}>
                 AVISO IMPORTANTE
               </h2>
-              <div style={{
-                background: '#fff7ed',
-                border: '2px solid #fed7aa',
-                borderRadius: 12,
-                padding: '16px 18px',
-                marginBottom: 24,
-                textAlign: 'left',
-              }}>
-                <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.65, margin: 0 }}>
+              <div style={{ background: '#fff7ed', border: '2px solid #fed7aa', borderRadius: 12, padding: '14px 16px', marginBottom: 22, textAlign: 'left' }}>
+                <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.65, margin: 0 }}>
                   A foto precisa ser <strong>somente da pessoa</strong>, sem outras pessoas no enquadramento.
                 </p>
                 <br />
-                <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, margin: 0 }}>
+                <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.85, margin: 0 }}>
                   ✅ Rosto visível, de frente<br />
                   ✅ Boa iluminação<br />
                   ✅ Foto individual (só o craque!)<br />
@@ -356,63 +286,29 @@ export default function CriarPage() {
             </div>
           )}
 
-          {/* ──────────── UPLOAD ──────────── */}
+          {/* UPLOAD */}
           {step === 'upload' && (
             <div>
-              <h2 style={{ fontSize: 19, fontWeight: 900, color: '#001C58', marginBottom: 4, textAlign: 'center' }}>
+              <h2 style={{ fontSize: 18, fontWeight: 900, color: '#001C58', marginBottom: 4, textAlign: 'center' }}>
                 📸 Foto do Craque
               </h2>
-              <p style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 18 }}>
-                Escolhe uma foto do rosto do seu filho
+              <p style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', marginBottom: 16 }}>
+                Tire uma foto agora ou escolha da galeria
               </p>
 
-              <div
-                onClick={() => fileRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  const f = e.dataTransfer.files[0]
-                  if (f) handleFile(f)
-                }}
-                style={{
-                  border: photoPreview ? '3px solid #009B3A' : '3px dashed #d1d5db',
-                  borderRadius: 16,
-                  cursor: 'pointer',
-                  marginBottom: 18,
-                  overflow: 'hidden',
-                  background: photoPreview ? '#000' : '#f9fafb',
-                  minHeight: photoPreview ? 0 : 180,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexDirection: 'column',
-                }}
-              >
-                {photoPreview ? (
-                  <img
-                    src={photoPreview}
-                    alt="Preview"
-                    style={{ width: '100%', maxHeight: 320, objectFit: 'contain', display: 'block' }}
-                  />
-                ) : (
-                  <>
-                    <div style={{ fontSize: 52 }}>📷</div>
-                    <p style={{ fontSize: 15, color: '#374151', fontWeight: 700, margin: '10px 0 4px' }}>
-                      Toque para escolher a foto
-                    </p>
-                    <p style={{ fontSize: 13, color: '#9ca3af' }}>ou arraste aqui</p>
-                  </>
-                )}
-              </div>
+              {/* Preview da foto */}
+              {photoPreview && (
+                <div style={{ border: '3px solid #009B3A', borderRadius: 14, overflow: 'hidden', marginBottom: 16, background: '#000' }}>
+                  <img src={photoPreview} alt="Preview"
+                    style={{ width: '100%', maxHeight: 300, objectFit: 'contain', display: 'block' }} />
+                </div>
+              )}
 
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-                style={{ display: 'none' }}
-              />
+              {/* Inputs ocultos */}
+              <input ref={galleryRef} type="file" accept="image/*"
+                onChange={onFileChange} style={{ display: 'none' }} />
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+                onChange={onFileChange} style={{ display: 'none' }} />
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {photoPreview && (
@@ -420,56 +316,58 @@ export default function CriarPage() {
                     PRÓXIMO →
                   </button>
                 )}
-                <button
-                  style={btn(false, 'ghost')}
-                  onClick={() => { fileRef.current?.click() }}
-                >
-                  {photoPreview ? '🔄 Trocar foto' : '📷 Escolher foto'}
+                {/* Botão câmera — abre câmera diretamente */}
+                <button style={btn(false, photoPreview ? 'ghost' : 'green')}
+                  onClick={() => cameraRef.current?.click()}>
+                  📷 {photoPreview ? 'Tirar nova foto' : 'Tirar foto agora'}
+                </button>
+                {/* Botão galeria — abre álbum */}
+                <button style={btn(false, 'ghost')}
+                  onClick={() => galleryRef.current?.click()}>
+                  🖼️ {photoPreview ? 'Trocar pela galeria' : 'Escolher da galeria'}
                 </button>
               </div>
             </div>
           )}
 
-          {/* ──────────── DADOS ──────────── */}
+          {/* DADOS */}
           {step === 'dados' && (
             <div>
-              <h2 style={{ fontSize: 19, fontWeight: 900, color: '#001C58', marginBottom: 4, textAlign: 'center' }}>
+              <h2 style={{ fontSize: 18, fontWeight: 900, color: '#001C58', marginBottom: 4, textAlign: 'center' }}>
                 ⚽ Dados do Jogador
               </h2>
-              <p style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 20 }}>
+              <p style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', marginBottom: 18 }}>
                 Essas informações aparecem na figurinha
               </p>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {/* Nome */}
                 <div>
                   <label style={labelStyle}>Nome completo</label>
-                  <input
-                    style={inputStyle}
-                    placeholder="Ex: Pedro Henrique"
-                    value={form.nome}
-                    onChange={setField('nome')}
-                    maxLength={30}
-                  />
+                  <input style={inputStyle} placeholder="Ex: Pedro Henrique"
+                    value={form.nome} onChange={setField('nome')} maxLength={30} />
                 </div>
 
-                {/* Data de nascimento */}
+                {/* Data — 3 selects responsivos */}
                 <div>
                   <label style={labelStyle}>Data de nascimento</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.6fr', gap: 8 }}>
-                    <select style={inputStyle} value={form.dia} onChange={setField('dia')}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: 6 }}>
+                    <select style={{ ...inputStyle, padding: '12px 6px', fontSize: 14 }}
+                      value={form.dia} onChange={setField('dia')}>
                       <option value="">Dia</option>
                       {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
                         <option key={d} value={String(d)}>{d}</option>
                       ))}
                     </select>
-                    <select style={inputStyle} value={form.mes} onChange={setField('mes')}>
+                    <select style={{ ...inputStyle, padding: '12px 6px', fontSize: 14 }}
+                      value={form.mes} onChange={setField('mes')}>
                       <option value="">Mês</option>
                       {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => (
                         <option key={i+1} value={String(i+1)}>{m}</option>
                       ))}
                     </select>
-                    <select style={inputStyle} value={form.ano} onChange={setField('ano')}>
+                    <select style={{ ...inputStyle, padding: '12px 6px', fontSize: 14 }}
+                      value={form.ano} onChange={setField('ano')}>
                       <option value="">Ano</option>
                       {Array.from({ length: 75 }, (_, i) => 2024 - i).map(y => (
                         <option key={y} value={String(y)}>{y}</option>
@@ -513,88 +411,54 @@ export default function CriarPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <div>
                     <label style={labelStyle}>Peso (kg)</label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Ex: 35"
-                      type="number"
-                      min="5" max="300"
-                      value={form.peso}
-                      onChange={setField('peso')}
-                    />
+                    <input style={inputStyle} placeholder="Ex: 35" type="number" min="5" max="300"
+                      value={form.peso} onChange={setField('peso')} />
                   </div>
                   <div>
                     <label style={labelStyle}>Altura (cm)</label>
-                    <input
-                      style={inputStyle}
-                      placeholder="Ex: 175"
-                      type="number"
-                      min="50" max="250"
-                      value={form.altura}
-                      onChange={setField('altura')}
-                      maxLength={3}
-                    />
+                    <input style={inputStyle} placeholder="Ex: 175" type="number" min="50" max="250"
+                      value={form.altura} onChange={setField('altura')} maxLength={3} />
                   </div>
                 </div>
               </div>
 
+              {/* Erro */}
               {error && (
-                <div style={{
-                  background: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  borderRadius: 10,
-                  padding: '12px 14px',
-                  marginTop: 16,
-                  color: '#dc2626',
-                  fontSize: 14,
-                  fontWeight: 500,
-                }}>
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 14px', marginTop: 16, color: '#dc2626', fontSize: 14, fontWeight: 500 }}>
                   ❌ {error}
+                  <br />
+                  <button
+                    onClick={handleGenerate}
+                    style={{ marginTop: 10, background: '#dc2626', color: 'white', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+                    🔄 Tentar novamente
+                  </button>
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                <button
-                  style={{ ...btn(false, 'ghost'), flex: '0 0 auto', width: 52, padding: '16px 0' }}
-                  onClick={() => setStep('upload')}
-                >
-                  ←
-                </button>
-                <button
-                  style={{ ...btn(!Boolean(isFormValid)), flex: 1 }}
-                  disabled={!isFormValid}
-                  onClick={handleGenerate}
-                >
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button style={{ ...btn(false, 'ghost'), flex: '0 0 auto', width: 48, padding: '15px 0' }}
+                  onClick={() => setStep('upload')}>←</button>
+                <button style={{ ...btn(!Boolean(isFormValid)), flex: 1 }}
+                  disabled={!isFormValid} onClick={handleGenerate}>
                   GERAR FIGURINHA 🔥
                 </button>
               </div>
             </div>
           )}
 
-          {/* ──────────── LOADING ──────────── */}
+          {/* LOADING */}
           {step === 'loading' && (
             <div style={{ textAlign: 'center', padding: '48px 0' }}>
-              <div style={{
-                fontSize: 60,
-                display: 'inline-block',
-                animation: 'spin 1.2s linear infinite',
-                marginBottom: 20,
-              }}>
-                ⚽
-              </div>
-              <h2 style={{ fontSize: 21, fontWeight: 900, color: '#001C58', marginBottom: 10 }}>
+              <div style={{ fontSize: 56, display: 'inline-block', animation: 'spin 1.2s linear infinite', marginBottom: 20 }}>⚽</div>
+              <h2 style={{ fontSize: 20, fontWeight: 900, color: '#001C58', marginBottom: 10 }}>
                 Gerando a figurinha...
               </h2>
-              <p style={{ color: '#6b7280', fontSize: 15, lineHeight: 1.6 }}>
+              <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>
                 Nossa IA está trabalhando.<br />Aguenta aí uns segundinhos! 😄
               </p>
               <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center', gap: 8 }}>
-                {[0, 1, 2].map(i => (
-                  <div key={i} style={{
-                    width: 10, height: 10,
-                    borderRadius: '50%',
-                    background: '#009B3A',
-                    animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-                  }} />
+                {[0,1,2].map(i => (
+                  <div key={i} style={{ width: 10, height: 10, borderRadius: '50%', background: '#009B3A', animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
                 ))}
               </div>
             </div>
@@ -602,160 +466,77 @@ export default function CriarPage() {
         </div>
       )}
 
-      {/* ──────────── PREVIEW (fora do card, fundo amarelo) ──────────── */}
+      {/* ── PREVIEW (fundo amarelo, fora do card) ── */}
       {step === 'preview' && figurinha && (
-        <div style={{ maxWidth: 430, margin: '0 auto', textAlign: 'center' }}>
+        <div style={{ maxWidth: 430, margin: '0 auto', textAlign: 'center', boxSizing: 'border-box' }}>
 
-          {/* Heading GOOLL! */}
-          <div style={{
-            fontSize: 48,
-            fontWeight: 900,
-            color: '#001C58',
-            fontStyle: 'italic',
-            letterSpacing: -1,
-            lineHeight: 1,
-            marginBottom: 6,
-          }}>
+          <div style={{ fontSize: 42, fontWeight: 900, color: '#001C58', fontStyle: 'italic', letterSpacing: -1, lineHeight: 1, marginBottom: 6 }}>
             GOOLL! 🎉
           </div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#001C58', marginBottom: 8 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: '#001C58', marginBottom: 8 }}>
             Sua figurinha está pronta!
           </h2>
-          <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.65, marginBottom: 20 }}>
+          <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.65, marginBottom: 18 }}>
             Receba o arquivo digital para a impressão e participe do sorteio.
             Leia o regulamento em seu e-mail.
           </p>
 
-          {/* Prova social ao vivo */}
           <ViewerBadge />
 
-          {/* Figurinha com overlay anti-screenshot */}
-          <div
-            style={{ position: 'relative', display: 'inline-block', marginBottom: 24, width: '100%', maxWidth: 300 }}
-            onContextMenu={(e) => e.preventDefault()}
-          >
-            <img
-              src={figurinha}
-              alt="Figurinha gerada"
-              draggable={false}
-              style={{
-                width: '100%',
-                borderRadius: 16,
-                boxShadow: '0 12px 40px rgba(0,0,0,0.30)',
-                display: 'block',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-              }}
-            />
-            {/* Overlay CSS com PREVIEW repetido — camada extra anti-screenshot */}
-            <div style={{
-              position: 'absolute',
-              inset: 0,
-              borderRadius: 16,
-              overflow: 'hidden',
-              pointerEvents: 'none',
-              userSelect: 'none',
-            }}>
+          {/* Imagem com overlay anti-screenshot */}
+          <div style={{ position: 'relative', width: '100%', maxWidth: 290, margin: '0 auto 22px', boxSizing: 'border-box' }}
+            onContextMenu={e => e.preventDefault()}>
+            <img src={figurinha} alt="Figurinha gerada" draggable={false}
+              style={{ width: '100%', borderRadius: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.30)', display: 'block', userSelect: 'none' }} />
+            <div style={{ position: 'absolute', inset: 0, borderRadius: 16, overflow: 'hidden', pointerEvents: 'none', userSelect: 'none' }}>
               {Array.from({ length: 9 }, (_, i) => (
-                <div key={i} style={{
-                  position: 'absolute',
-                  left: '-15%',
-                  top: `${i * 11.5 - 3}%`,
-                  width: '130%',
-                  fontSize: 11,
-                  fontWeight: 900,
-                  color: 'rgba(255,255,255,0.22)',
-                  transform: 'rotate(-38deg)',
-                  letterSpacing: 4,
-                  whiteSpace: 'nowrap',
-                  textTransform: 'uppercase',
-                }}>
+                <div key={i} style={{ position: 'absolute', left: '-15%', top: `${i * 11.5 - 3}%`, width: '130%', fontSize: 10, fontWeight: 900, color: 'rgba(255,255,255,0.22)', transform: 'rotate(-38deg)', letterSpacing: 4, whiteSpace: 'nowrap', textTransform: 'uppercase' }}>
                   PREVIEW • PREVIEW • PREVIEW • PREVIEW
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Bloco de preço + urgência */}
-          <div style={{
-            background: 'white',
-            borderRadius: 20,
-            padding: '22px 20px',
-            marginBottom: 14,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.10)',
-          }}>
-            {/* Preço riscado + novo */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 4 }}>
-              <span style={{ fontSize: 16, color: '#9ca3af', textDecoration: 'line-through', fontWeight: 600 }}>
-                De R$29,90
-              </span>
-              <span style={{ fontSize: 13, background: '#dcfce7', color: '#166534', fontWeight: 800, borderRadius: 8, padding: '2px 8px' }}>
-                -57% OFF
-              </span>
+          {/* Bloco preço + CTA */}
+          <div style={{ background: 'white', borderRadius: 20, padding: '20px 16px', marginBottom: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.10)', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 4 }}>
+              <span style={{ fontSize: 14, color: '#9ca3af', textDecoration: 'line-through', fontWeight: 600 }}>De R$29,90</span>
+              <span style={{ fontSize: 12, background: '#dcfce7', color: '#166534', fontWeight: 800, borderRadius: 8, padding: '2px 7px' }}>-57% OFF</span>
             </div>
-            <div style={{ fontSize: 44, fontWeight: 900, color: '#009B3A', lineHeight: 1, marginBottom: 16 }}>
+            <div style={{ fontSize: 40, fontWeight: 900, color: '#009B3A', lineHeight: 1, marginBottom: 16 }}>
               R$12,90
             </div>
 
-            {/* CTA principal */}
-            <a
-              href={checkoutUrl}
-              style={{
-                ...btn(false, 'navy'),
-                fontSize: 17,
-                padding: '20px',
-                borderRadius: 14,
-                boxShadow: '0 6px 20px rgba(0,28,88,0.30)',
-                marginBottom: 12,
-              }}
-            >
+            <a href={checkoutUrl} style={{ ...btn(false, 'navy'), fontSize: 16, padding: '18px 12px', borderRadius: 14, boxShadow: '0 6px 20px rgba(0,28,88,0.30)', marginBottom: 12 }}>
               RECEBER MINHA FIGURINHA
             </a>
 
-            {/* Badge ACESSO LIBERADO */}
-            <div style={{ color: '#009B3A', fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
+            <div style={{ color: '#009B3A', fontWeight: 800, fontSize: 14, marginBottom: 4 }}>
               ✅ ACESSO LIBERADO NA HORA
             </div>
-            <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
               É só voltar aqui em <strong>Minha Área</strong> após o pagamento.
             </p>
           </div>
 
-          {/* Selos de confiança */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            gap: 16,
-            flexWrap: 'wrap',
-            marginBottom: 8,
-          }}>
-            {['🔒 Pagamento seguro', '📥 Download imediato', '⭐ +30.000 figurinhas'].map((t, i) => (
-              <span key={i} style={{ fontSize: 12, color: '#001C58', fontWeight: 700 }}>{t}</span>
-            ))}
+          {/* Selos */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10, fontSize: 12, color: '#001C58', fontWeight: 700 }}>
+            <span>🔒 Pagamento seguro</span>
+            <span>📥 Download imediato</span>
+            <span>⭐ +30.000 figurinhas</span>
           </div>
 
           {/* Urgência */}
-          <div style={{
-            background: '#fef3c7',
-            border: '1.5px solid #fcd34d',
-            borderRadius: 12,
-            padding: '10px 16px',
-            fontSize: 13,
-            color: '#92400e',
-            fontWeight: 600,
-            marginBottom: 4,
-          }}>
+          <div style={{ background: '#fef3c7', border: '1.5px solid #fcd34d', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#92400e', fontWeight: 600, marginBottom: 4 }}>
             ⏰ Promoção por tempo limitado — Não perca!
           </div>
 
-          {/* Carrossel de depoimentos */}
           <TestimonialsCarousel />
         </div>
       )}
 
-      {/* Social proof nos primeiros passos */}
       {(step === 'aviso' || step === 'upload') && (
-        <p style={{ textAlign: 'center', fontSize: 14, color: '#001C58', fontWeight: 700, marginTop: 18 }}>
+        <p style={{ textAlign: 'center', fontSize: 13, color: '#001C58', fontWeight: 700, marginTop: 16 }}>
           ⭐ +30.000 figurinhas já criadas
         </p>
       )}
@@ -766,6 +547,8 @@ export default function CriarPage() {
           0%, 100% { transform: scale(1); opacity: 1 }
           50% { transform: scale(1.4); opacity: 0.5 }
         }
+        * { -webkit-tap-highlight-color: transparent; }
+        select, input { appearance: auto; -webkit-appearance: auto; }
       `}</style>
     </div>
   )
