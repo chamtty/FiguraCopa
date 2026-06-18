@@ -42,7 +42,7 @@ export default function Home() {
       {/* Template preview */}
       <div style={{ display: 'flex', justifyContent: 'center', padding: '0 60px 28px' }}>
         <img
-          src="/template.png"
+          src="/template.jpg"
           alt="Exemplo de figurinha personalizada"
           style={{
             width: '100%',

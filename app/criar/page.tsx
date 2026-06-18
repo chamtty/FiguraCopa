@@ -138,7 +138,7 @@ export default function CriarPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const setField = (k: keyof FormFields) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm(prev => ({ ...prev, [k]: e.target.value }))
 
   const handleFile = useCallback((file: File) => {
@@ -332,43 +332,56 @@ export default function CriarPage() {
               <div>
                 <label style={labelStyle}>Data de nascimento</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.6fr', gap: 8 }}>
-                  <input
-                    style={inputStyle}
-                    placeholder="Dia"
-                    type="number"
-                    min="1" max="31"
-                    value={form.dia}
-                    onChange={setField('dia')}
-                  />
-                  <input
-                    style={inputStyle}
-                    placeholder="Mês"
-                    type="number"
-                    min="1" max="12"
-                    value={form.mes}
-                    onChange={setField('mes')}
-                  />
-                  <input
-                    style={inputStyle}
-                    placeholder="Ano"
-                    type="number"
-                    min="1990" max="2025"
-                    value={form.ano}
-                    onChange={setField('ano')}
-                  />
+                  <select style={inputStyle} value={form.dia} onChange={setField('dia')}>
+                    <option value="">Dia</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                      <option key={d} value={String(d)}>{d}</option>
+                    ))}
+                  </select>
+                  <select style={inputStyle} value={form.mes} onChange={setField('mes')}>
+                    <option value="">Mês</option>
+                    {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => (
+                      <option key={i+1} value={String(i+1)}>{m}</option>
+                    ))}
+                  </select>
+                  <select style={inputStyle} value={form.ano} onChange={setField('ano')}>
+                    <option value="">Ano</option>
+                    {Array.from({ length: 75 }, (_, i) => 2024 - i).map(y => (
+                      <option key={y} value={String(y)}>{y}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               {/* Clube */}
               <div>
                 <label style={labelStyle}>Clube do coração</label>
-                <input
-                  style={inputStyle}
-                  placeholder="Ex: Flamengo"
-                  value={form.clube}
-                  onChange={setField('clube')}
-                  maxLength={30}
-                />
+                <select style={inputStyle} value={form.clube} onChange={setField('clube')}>
+                  <option value="">Selecione o clube</option>
+                  <optgroup label="── Série A ──">
+                    {['Athletico-PR','Atlético-MG','Bahia','Botafogo','Corinthians','Cruzeiro',
+                      'Flamengo','Fluminense','Fortaleza','Grêmio','Internacional','Palmeiras',
+                      'RB Bragantino','São Paulo','Vasco','América-MG','Atlético-GO',
+                      'Criciúma','Cuiabá','Juventude'].sort().map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="── Série B / Outros ──">
+                    {['Avaí','Ceará','Chapecoense','Coritiba','CSA','Figueirense','Goiás',
+                      'Guarani','Náutico','Novorizontino','Operário-PR','Paysandu','Ponte Preta',
+                      'Portuguesa','Remo','Santa Cruz','Santos','Sport','Vitória','Vila Nova',
+                      'ABC','Bangu','São Caetano','Joinville'].sort().map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="── Internacional ──">
+                    {['Barcelona','Bayern de Munique','Borussia Dortmund','Inter de Milão',
+                      'Juventus','Liverpool','Manchester City','Manchester United',
+                      'Milan','Napoli','PSG','Real Madrid'].sort().map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                </select>
               </div>
 
               {/* Peso e Altura */}
@@ -379,19 +392,21 @@ export default function CriarPage() {
                     style={inputStyle}
                     placeholder="Ex: 35"
                     type="number"
-                    min="5" max="200"
+                    min="5" max="300"
                     value={form.peso}
                     onChange={setField('peso')}
                   />
                 </div>
                 <div>
-                  <label style={labelStyle}>Altura (m)</label>
+                  <label style={labelStyle}>Altura (cm)</label>
                   <input
                     style={inputStyle}
-                    placeholder="Ex: 1.42"
+                    placeholder="Ex: 175"
+                    type="number"
+                    min="50" max="250"
                     value={form.altura}
                     onChange={setField('altura')}
-                    maxLength={5}
+                    maxLength={3}
                   />
                 </div>
               </div>
