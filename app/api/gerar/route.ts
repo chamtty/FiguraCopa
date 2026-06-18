@@ -10,11 +10,12 @@ import fs from 'fs'
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! })
 
 // ── Coordenadas do template (3576×4800) ───────────────────────
-// Silhueta da cabeça: x=850-2200, y=100-1650
-const FACE_LEFT   = 850
-const FACE_TOP    = 100
-const FACE_WIDTH  = 1350
-const FACE_HEIGHT = 1550
+// Área da foto: cobre silhueta + parte do jersey
+// Centro horizontal da silhueta: ~x=1472 (confirmado por análise de pixels)
+const PHOTO_LEFT   = 650   // começa mais à esquerda para centralizar
+const PHOTO_TOP    = 0     // começa do topo
+const PHOTO_WIDTH  = 1650  // largura generosa para cobrir a silhueta
+const PHOTO_HEIGHT = 2800  // até o início do jersey (y=2700)
 
 // ── Fontes para o watermark PREVIEW ───────────────────────────
 function loadFont(publicFile: string): ArrayBuffer | null {
@@ -121,46 +122,62 @@ export async function POST(req: NextRequest) {
       console.warn('[gerar] Face detection falhou, usando heurística:', e)
     }
 
-    // ── PASSO 2: Recortar rosto + máscara oval (Sharp) ─────────
+    // ── PASSO 2: Recortar rosto + fundir com template (Sharp) ────
     const userMeta = await sharp(photoBuffer).metadata()
     const UW = userMeta.width!
     const UH = userMeta.height!
 
     // Fallback: assume rosto no centro-topo da foto
     if (!faceBox.w || !faceBox.h) {
-      faceBox = { x: UW * 0.1, y: 0, w: UW * 0.8, h: UH * 0.6 }
+      faceBox = { x: UW * 0.1, y: 0, w: UW * 0.8, h: UH * 0.55 }
     }
 
-    // Recortar com padding generoso (inclui cabelo, pescoço)
-    const padX    = faceBox.w * 0.6
-    const padYTop = faceBox.h * 0.6   // espaço acima para cabelo
-    const padYBot = faceBox.h * 0.9   // espaço abaixo para pescoço
+    // Recortar: da testa até bem abaixo do pescoço (inclui ombros)
+    const padX    = faceBox.w * 0.7
+    const padYTop = faceBox.h * 0.7   // acima para cabelo/topo da cabeça
+    const padYBot = faceBox.h * 1.5   // bastante abaixo para ombros/busto
 
     const cropX = Math.max(0, Math.floor(faceBox.x - padX))
     const cropY = Math.max(0, Math.floor(faceBox.y - padYTop))
     const cropW = Math.min(UW - cropX, Math.floor(faceBox.w + padX * 2))
     const cropH = Math.min(UH - cropY, Math.floor(faceBox.h + padYTop + padYBot))
 
-    // Redimensionar para a área da silhueta no template
+    // Redimensionar para preencher a área da foto no template
     const resizedFace = await sharp(photoBuffer)
       .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
-      .resize(FACE_WIDTH, FACE_HEIGHT, { fit: 'cover', position: 'top' })
+      .resize(PHOTO_WIDTH, PHOTO_HEIGHT, { fit: 'cover', position: 'top' })
       .toBuffer()
 
-    // Máscara elipse com bordas suaves para remover o fundo
-    const cx = FACE_WIDTH / 2
-    const cy = FACE_HEIGHT * 0.42
-    const rx = FACE_WIDTH * 0.47
-    const ry = FACE_HEIGHT * 0.46
-    const maskSvg = `<svg width="${FACE_WIDTH}" height="${FACE_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+    // Máscara com fade nas laterais e forte fade na parte inferior
+    // (preserva o rosto/cabeça nítido, dissolve as bordas para fundir com o template)
+    const W = PHOTO_WIDTH
+    const H = PHOTO_HEIGHT
+    const maskSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <radialGradient id="g" cx="${cx}" cy="${cy}" r="${Math.max(rx,ry)}" gradientUnits="userSpaceOnUse">
-          <stop offset="75%" stop-color="white" stop-opacity="1"/>
-          <stop offset="100%" stop-color="white" stop-opacity="0"/>
-        </radialGradient>
-        <mask id="m"><ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#g)"/></mask>
+        <!-- Fade lateral esquerdo -->
+        <linearGradient id="gl" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="black" stop-opacity="1"/>
+          <stop offset="18%"  stop-color="black" stop-opacity="0"/>
+        </linearGradient>
+        <!-- Fade lateral direito -->
+        <linearGradient id="gr" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="82%"  stop-color="black" stop-opacity="0"/>
+          <stop offset="100%" stop-color="black" stop-opacity="1"/>
+        </linearGradient>
+        <!-- Fade inferior (forte) -->
+        <linearGradient id="gb" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="55%"  stop-color="black" stop-opacity="0"/>
+          <stop offset="100%" stop-color="black" stop-opacity="1"/>
+        </linearGradient>
+        <!-- Máscara combinada: branco = opaco, preto = transparente -->
+        <mask id="m">
+          <rect width="${W}" height="${H}" fill="white"/>
+          <rect width="${W}" height="${H}" fill="url(#gl)"/>
+          <rect width="${W}" height="${H}" fill="url(#gr)"/>
+          <rect width="${W}" height="${H}" fill="url(#gb)"/>
+        </mask>
       </defs>
-      <rect width="${FACE_WIDTH}" height="${FACE_HEIGHT}" fill="white" mask="url(#m)"/>
+      <rect width="${W}" height="${H}" fill="white" mask="url(#m)"/>
     </svg>`
 
     const maskedFace = await sharp(resizedFace)
@@ -169,10 +186,10 @@ export async function POST(req: NextRequest) {
       .png()
       .toBuffer()
 
-    // Colar rosto no template
+    // Colar foto no template
     const templateBuf = fs.readFileSync(templatePath)
     const stickerWithFace = await sharp(templateBuf)
-      .composite([{ input: maskedFace, left: FACE_LEFT, top: FACE_TOP }])
+      .composite([{ input: maskedFace, left: PHOTO_LEFT, top: PHOTO_TOP }])
       .jpeg({ quality: 92 })
       .toBuffer()
 
