@@ -114,9 +114,9 @@ export async function POST(req: NextRequest) {
 
     const alturaNum = parseFloat(altura)
     const alturaStr = alturaNum > 3
-      ? `${(alturaNum / 100).toFixed(2)}m`
+      ? `${(alturaNum / 100).toFixed(2).replace('.', ',')}m`
       : `${alturaNum}m`
-    const nascimento = `${dia.padStart(2,'0')}/${mes.padStart(2,'0')}/${ano}`
+    const nascimento = `${mes.padStart(2,'0')}-${dia.padStart(2,'0')}-${ano}`
 
     // ── Carregar template ──────────────────────────────────────
     const templatePathPng = path.join(process.cwd(), 'public', 'template.png')
