@@ -85,10 +85,15 @@ export async function POST(req: NextRequest) {
     const nascimento = `${dia.padStart(2,'0')}/${mes.padStart(2,'0')}/${ano}`
 
     // ── Carregar template e foto ───────────────────────────────
-    const templatePath = path.join(process.cwd(), 'public', 'template.png')
-    if (!fs.existsSync(templatePath)) {
+    const templatePathPng = path.join(process.cwd(), 'public', 'template.png')
+    const templatePathJpg = path.join(process.cwd(), 'public', 'template.jpg')
+    const templatePath = fs.existsSync(templatePathPng) ? templatePathPng
+                       : fs.existsSync(templatePathJpg) ? templatePathJpg
+                       : null
+    if (!templatePath) {
       return NextResponse.json({ error: 'Template não encontrado' }, { status: 500 })
     }
+    const templateMime = templatePath.endsWith('.jpg') ? 'image/jpeg' : 'image/png'
     const templateB64 = fs.readFileSync(templatePath).toString('base64')
     const photoBuffer = Buffer.from(await photoFile.arrayBuffer())
     const photoB64    = photoBuffer.toString('base64')
@@ -116,7 +121,7 @@ Retorne APENAS a imagem da figurinha gerada.`
         role: 'user',
         parts: [
           { text: prompt },
-          { inlineData: { mimeType: 'image/png', data: templateB64 } },
+          { inlineData: { mimeType: templateMime, data: templateB64 } },
           { inlineData: { mimeType: photoMime,   data: photoB64   } },
         ],
       }],
