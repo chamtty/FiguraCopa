@@ -113,7 +113,8 @@ export async function POST(req: NextRequest) {
           ],
         }],
       })
-      const txt = detectResp.response.text()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const txt = (detectResp.candidates?.[0]?.content?.parts as any[])?.[0]?.text ?? ''
       const match = txt.match(/\{[^}]+\}/)
       if (match) faceBox = JSON.parse(match[0])
     } catch (e) {
