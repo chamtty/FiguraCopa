@@ -7,10 +7,7 @@ import { createElement } from 'react'
 import path from 'path'
 import fs from 'fs'
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GOOGLE_AI_API_KEY!,
-  httpOptions: { apiVersion: 'v1alpha' },
-})
+const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! })
 
 // ── Fontes para o watermark PREVIEW ───────────────────────────
 function loadFont(publicFile: string): ArrayBuffer | null {
@@ -114,7 +111,7 @@ Sua tarefa é gerar uma nova figurinha Copa 2026 com:
 Retorne APENAS a imagem da figurinha gerada.`
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-preview-image-generation',
+      model: 'gemini-2.5-flash-image',
       contents: [{
         role: 'user',
         parts: [
