@@ -100,20 +100,12 @@ export async function POST(req: NextRequest) {
     const photoMime   = (photoFile.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp'
 
     // ── Gemini: gera figurinha ─────────────────────────────────
-    const prompt = `Você é um editor de imagens. Vou te dar duas imagens:
-1. Uma figurinha da Copa 2026 com uma silhueta/área em branco para o rosto
-2. A foto da pessoa que deve aparecer na figurinha
+    const prompt = `Coloque o rosto da segunda imagem no template de figurinha da Copa 2026 da primeira imagem. Substitua também o texto da faixa inferior por:
+- Nome (letras grandes): ${nome.toUpperCase()}
+- Dados: ${nascimento} | ${alturaStr} | ${peso}kg
+- Clube: ${clube.toUpperCase()}
 
-Sua tarefa é gerar uma nova figurinha Copa 2026 com:
-- O ROSTO e CORPO da SEGUNDA IMAGEM colocado na área da silhueta da PRIMEIRA IMAGEM
-- Todos os elementos do fundo (cores, logos Copa 2026, FIFA, bandeira brasileira, "26") preservados exatamente
-- A FAIXA na parte inferior com o seguinte texto:
-  Linha 1 (nome, letras grandes): ${nome.toUpperCase()}
-  Linha 2: ${nascimento} | ${alturaStr} | ${peso}kg
-  Linha 3: ${clube.toUpperCase()}
-- Estilo visual de figurinha Panini oficial
-
-Retorne APENAS a imagem da figurinha gerada.`
+Mantenha todo o resto do template exatamente igual.`
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
