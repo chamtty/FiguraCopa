@@ -7,7 +7,10 @@ import { createElement } from 'react'
 import path from 'path'
 import fs from 'fs'
 
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! })
+const ai = new GoogleGenAI({
+  apiKey: process.env.GOOGLE_AI_API_KEY!,
+  httpOptions: { apiVersion: 'v1alpha' },
+})
 
 // ── Fontes para o watermark PREVIEW ───────────────────────────
 function loadFont(publicFile: string): ArrayBuffer | null {
