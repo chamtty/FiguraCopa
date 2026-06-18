@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
 Mantenha todo o resto do template exatamente igual.`
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-3-pro-image',
       contents: [{
         role: 'user',
         parts: [
