@@ -222,9 +222,10 @@ export default function CriarPage() {
 
       setFigurinha(data.image)
       setStickerId(data.id)
-      // Guarda no sessionStorage para a página /obrigado usar como fallback
+      // Guarda no localStorage para a página /obrigado usar como fallback
+      // (localStorage persiste entre abas e sessões — necessário para redirect do Kirvano)
       if (data.blobUrl) {
-        sessionStorage.setItem('fig_entrega', JSON.stringify({ id: data.id, url: data.blobUrl }))
+        localStorage.setItem('fig_entrega', JSON.stringify({ id: data.id, url: data.blobUrl }))
       }
       setStep('preview')
     } catch (e: unknown) {

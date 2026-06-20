@@ -15,9 +15,9 @@ export default function ObrigadoClient({ id, blobUrl: serverUrl }: Props) {
   useEffect(() => {
     if (serverUrl) return // já veio do servidor
 
-    // Tenta sessionStorage (mesma aba, redirect do Kirvano)
+    // Tenta localStorage (mesma aba, redirect do Kirvano)
     try {
-      const raw = sessionStorage.getItem('fig_entrega')
+      const raw = localStorage.getItem('fig_entrega')
       if (raw) {
         const { id: storedId, url: storedUrl } = JSON.parse(raw)
         if (!id || storedId === id) {
