@@ -176,7 +176,7 @@ Mantenha todo o resto do template exatamente igual.`
       .toBuffer()
 
     const id = crypto.randomUUID()
-    await put(`figurinhas/${id}.jpg`, cleanImage, { access: 'public', addRandomSuffix: false })
+    const blobResult = await put(`figurinhas/${id}.jpg`, cleanImage, { access: 'public', addRandomSuffix: false })
 
     // ── Watermark PREVIEW ──────────────────────────────────────
     const watermarkSvg = await buildWatermarkSvg(TW!, TH!)
@@ -188,6 +188,7 @@ Mantenha todo o resto do template exatamente igual.`
     return NextResponse.json({
       image: `data:image/jpeg;base64,${previewImage.toString('base64')}`,
       id,
+      blobUrl: blobResult.url,
     })
 
   } catch (err) {

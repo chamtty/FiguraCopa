@@ -222,6 +222,10 @@ export default function CriarPage() {
 
       setFigurinha(data.image)
       setStickerId(data.id)
+      // Guarda no sessionStorage para a página /obrigado usar como fallback
+      if (data.blobUrl) {
+        sessionStorage.setItem('fig_entrega', JSON.stringify({ id: data.id, url: data.blobUrl }))
+      }
       setStep('preview')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao gerar. Tente novamente.'
