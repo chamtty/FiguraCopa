@@ -145,7 +145,7 @@ YOUR TASK — follow each step:
 
 1. FACE EXTRACTION: From IMAGE 2, extract this person's face with high fidelity — exact skin tone, facial features, hair, expression. This face must be preserved realistically.
 
-2. JERSEY COMPOSITION: Render this person from the shoulders up wearing a Brazil national team jersey (green shirt with yellow collar and CBF badge). The face from step 1 must look like the exact same person. Pose: front-facing, slight smile, like a real Panini sticker player portrait.
+2. JERSEY COMPOSITION: Render this person from the shoulders up wearing the Brazil national team HOME jersey — bright YELLOW shirt with green collar, green cuffs, and the CBF badge on the left chest. The face from step 1 must look like the exact same person. Pose: front-facing, slight smile, like a real Panini sticker player portrait.
 
 3. PLACE IN TEMPLATE: Insert this portrait (person in Brazil jersey) into the photo area of IMAGE 1 (the rectangular region in the upper portion of the card). It must fill the entire photo area, covering any existing placeholder completely.
 
