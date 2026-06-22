@@ -134,66 +134,29 @@ export async function POST(req: NextRequest) {
     const photoB64     = photoBuffer.toString('base64')
     const photoMime    = (photoFile.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp'
 
-    // ── ETAPA 1: Remover fundo da foto ────────────────────────
-    let personB64 = photoB64
-    try {
-      const bgRemoveResp = await ai.models.generateContent({
-        model: 'gemini-3-pro-image',
-        contents: [{
-          role: 'user',
-          parts: [
-            {
-              text: `Background removal task. Look at this photo of a person.
+    // ── Gemini: gera figurinha a partir do rosto + camisa do Brasil ──
+    const prompt = `You are creating a personalized Copa 2026 Panini-style sticker card.
 
-Remove ONLY the non-person background (walls, floor, sky, furniture, objects). Replace background with solid white (#FFFFFF).
+IMAGE 1: Copa 2026 sticker card template. Contains: Copa/FIFA graphics, a photo area in the upper portion, and a text strip at the bottom with name/stats/club.
 
-IMPORTANT — keep these elements exactly as they appear in the photo:
-- The person's face, hair, skin tone
-- ALL clothing the person is wearing (shirts, jerseys, jackets — do NOT remove these)
-- Jewelry, accessories, chains, etc.
-- Shoulders and upper body
+IMAGE 2: A casual photo of a real person.
 
-Output: the same person on a clean white (#FFFFFF) background. No shadows. No cropping.`,
-            },
-            { inlineData: { mimeType: photoMime, data: photoB64 } },
-          ],
-        }],
-        config: { responseModalities: ['IMAGE'] },
-      })
-      const bgParts   = bgRemoveResp.candidates?.[0]?.content?.parts ?? []
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const bgImgPart = bgParts.find((p: any) => p.inlineData?.data)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const bgData    = (bgImgPart as any)?.inlineData?.data as string | undefined
-      if (bgData) {
-        personB64 = bgData
-        console.log('[gerar] Fundo removido com sucesso')
-      } else {
-        console.warn('[gerar] Etapa 1 não retornou imagem — usando foto original')
-      }
-    } catch (err) {
-      console.warn('[gerar] Erro na remoção de fundo, usando foto original:', err)
-    }
+YOUR TASK — follow each step:
 
-    // ── ETAPA 2: Compositar no template e atualizar texto ──────
-    const prompt = `You are creating a Copa 2026 Panini sticker card. Follow these steps exactly:
+1. FACE EXTRACTION: From IMAGE 2, extract this person's face with high fidelity — exact skin tone, facial features, hair, expression. This face must be preserved realistically.
 
-IMAGE 1 is the sticker card template. It has:
-- A colored background with Copa 2026 graphics and decorations
-- A PHOTO AREA in the upper portion (may currently show a placeholder silhouette or shape)
-- A text strip at the bottom with name, stats, and club fields
+2. JERSEY COMPOSITION: Render this person from the shoulders up wearing a Brazil national team jersey (green shirt with yellow collar and CBF badge). The face from step 1 must look like the exact same person. Pose: front-facing, slight smile, like a real Panini sticker player portrait.
 
-IMAGE 2 is a person's photo on a WHITE background (white = removed background; only the person is real).
+3. PLACE IN TEMPLATE: Insert this portrait (person in Brazil jersey) into the photo area of IMAGE 1 (the rectangular region in the upper portion of the card). It must fill the entire photo area, covering any existing placeholder completely.
 
-WHAT TO DO:
-1. Keep IMAGE 1's full design: all borders, colors, Copa logos, "26" graphics, decorative elements — change nothing except the photo area and the text strip.
-2. In the PHOTO AREA: COMPLETELY REPLACE whatever is there now (including any placeholder silhouette or shape) by filling it entirely with the person from IMAGE 2. The white areas in IMAGE 2 are transparent — paste only the person, not the white. Scale the person to fill the photo area completely, edge to edge.
-3. Update the text strip at the bottom:
-   - Name (large text): ${nome.toUpperCase()}
-   - Stats line: ${nascimento} | ${alturaStr} | ${peso}kg
+4. PRESERVE TEMPLATE: Everything else in IMAGE 1 must stay exactly as-is — Copa logos, "26" graphics, teal/green background, borders, decorations. Only the photo area and the text strip change.
+
+5. UPDATE TEXT STRIP at the bottom:
+   - Large name: ${nome.toUpperCase()}
+   - Stats: ${nascimento} | ${alturaStr} | ${peso}kg
    - Club: ${clube.toUpperCase()}
 
-Output: the completed sticker card image only.`
+Output: the completed sticker card only.`
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image',
@@ -202,7 +165,7 @@ Output: the completed sticker card image only.`
         parts: [
           { text: prompt },
           { inlineData: { mimeType: templateMime, data: templateB64 } },
-          { inlineData: { mimeType: 'image/jpeg', data: personB64   } },
+          { inlineData: { mimeType: photoMime,    data: photoB64    } },
         ],
       }],
       config: { responseModalities: ['IMAGE', 'TEXT'] },
