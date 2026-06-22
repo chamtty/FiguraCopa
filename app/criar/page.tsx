@@ -172,10 +172,18 @@ function ViewerBadge() {
   const [count] = useState(() => Math.floor(Math.random() * 28) + 34)
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-      fontSize: 13, color: '#001C58', fontWeight: 700, marginBottom: 16,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+      fontSize: 14, color: '#001C58', fontWeight: 800, marginBottom: 16,
     }}>
-      🔴 {count} pessoas estão vendo agora
+      <span style={{
+        display: 'inline-block',
+        width: 10, height: 10,
+        borderRadius: '50%',
+        background: '#E8321C',
+        animation: 'blinkDot 1s ease-in-out infinite',
+        flexShrink: 0,
+      }} />
+      {count} pessoas estão fazendo figurinhas agora
     </div>
   )
 }
@@ -579,6 +587,10 @@ export default function CriarPage() {
         @keyframes pulse {
           0%, 100% { transform: scale(1); opacity: 1 }
           50% { transform: scale(1.4); opacity: 0.5 }
+        }
+        @keyframes blinkDot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.2; transform: scale(0.7); }
         }
         * { -webkit-tap-highlight-color: transparent; }
         select, input { appearance: auto; -webkit-appearance: auto; }

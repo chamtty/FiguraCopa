@@ -135,12 +135,26 @@ export async function POST(req: NextRequest) {
     const photoMime    = (photoFile.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp'
 
     // ── Gemini: coloca rosto no template e substitui texto ─────
-    const prompt = `Coloque o rosto da segunda imagem no template de figurinha da Copa 2026 da primeira imagem, na área da silhueta. Remova completamente o fundo da segunda imagem — use apenas o rosto e busto da pessoa, sem qualquer pixel do fundo original. Substitua também o texto da faixa inferior por:
-- Nome (letras grandes): ${nome.toUpperCase()}
-- Dados: ${nascimento} | ${alturaStr} | ${peso}kg
-- Clube: ${clube.toUpperCase()}
+    const prompt = `Você é um editor de imagens profissional criando uma figurinha personalizada da Copa 2026.
 
-Mantenha todo o resto do template exatamente igual.`
+PRIMEIRA IMAGEM = template da figurinha (LAYOUT FIXO):
+- Este é o layout final. NÃO altere bordas, cores, estrutura, logos nem decorações.
+- O template possui uma área retangular na parte superior destinada à foto da pessoa.
+- Na faixa inferior há campos de texto (nome, dados, clube) que devem ser atualizados.
+
+SEGUNDA IMAGEM = foto da pessoa a ser inserida:
+- Recorte APENAS o rosto e busto, removendo 100% do fundo original.
+- Cole o recorte na área de foto do template, ajustando o tamanho para preencher essa área.
+
+RESULTADO FINAL obrigatório:
+1. O template aparece IDÊNTICO ao original em layout, cores e decorações.
+2. A área de foto contém o rosto/busto da pessoa (sem fundo) recortado da segunda imagem.
+3. A faixa de texto inferior exibe:
+   - Nome em letras grandes: ${nome.toUpperCase()}
+   - Dados: ${nascimento} | ${alturaStr} | ${peso}kg
+   - Clube: ${clube.toUpperCase()}
+
+Não invente elementos. Não mude o fundo nem a estrutura do template. Apenas composite o rosto na área correta e atualize o texto.`
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image',
