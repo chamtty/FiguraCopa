@@ -94,7 +94,7 @@ async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   return Buffer.from(svg)
 }
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   try {
@@ -134,27 +134,58 @@ export async function POST(req: NextRequest) {
     const photoB64     = photoBuffer.toString('base64')
     const photoMime    = (photoFile.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp'
 
-    // ── Gemini: coloca rosto no template e substitui texto ─────
-    const prompt = `Você é um editor de imagens profissional criando uma figurinha personalizada da Copa 2026.
+    // ── ETAPA 1: Remover fundo da foto ────────────────────────
+    let personB64 = photoB64
+    try {
+      const bgRemoveResp = await ai.models.generateContent({
+        model: 'gemini-3-pro-image',
+        contents: [{
+          role: 'user',
+          parts: [
+            {
+              text: `Remove the background from this portrait photo. Output the exact same person on a completely clean white (#FFFFFF) background. Rules:
+- Keep every detail of the person: face, hair, skin, clothing, accessories
+- Replace ALL background pixels (walls, floor, sky, furniture, any non-person elements) with solid white #FFFFFF
+- No shadows, no gradients, no blur on edges — clean hard cutout on white
+- Do not crop, resize or reposition the person
+- Output only the edited image`,
+            },
+            { inlineData: { mimeType: photoMime, data: photoB64 } },
+          ],
+        }],
+        config: { responseModalities: ['IMAGE'] },
+      })
+      const bgParts   = bgRemoveResp.candidates?.[0]?.content?.parts ?? []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const bgImgPart = bgParts.find((p: any) => p.inlineData?.data)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const bgData    = (bgImgPart as any)?.inlineData?.data as string | undefined
+      if (bgData) {
+        personB64 = bgData
+        console.log('[gerar] Fundo removido com sucesso')
+      } else {
+        console.warn('[gerar] Etapa 1 não retornou imagem — usando foto original')
+      }
+    } catch (err) {
+      console.warn('[gerar] Erro na remoção de fundo, usando foto original:', err)
+    }
 
-PRIMEIRA IMAGEM = template da figurinha (LAYOUT FIXO):
-- Este é o layout final. NÃO altere bordas, cores, estrutura, logos nem decorações.
-- O template possui uma área retangular na parte superior destinada à foto da pessoa.
-- Na faixa inferior há campos de texto (nome, dados, clube) que devem ser atualizados.
+    // ── ETAPA 2: Compositar no template e atualizar texto ──────
+    const prompt = `You are a professional photo editor. Your task: create a Copa 2026 sticker by compositing a person's photo onto a sticker template.
 
-SEGUNDA IMAGEM = foto da pessoa a ser inserida:
-- Recorte APENAS o rosto e busto, removendo 100% do fundo original.
-- Cole o recorte na área de foto do template, ajustando o tamanho para preencher essa área.
+IMAGE 1 = the sticker template (do NOT alter its structure, colors, borders, logos or decorations).
+IMAGE 2 = a person on a WHITE background (the white represents the removed background — it is transparent).
 
-RESULTADO FINAL obrigatório:
-1. O template aparece IDÊNTICO ao original em layout, cores e decorações.
-2. A área de foto contém o rosto/busto da pessoa (sem fundo) recortado da segunda imagem.
-3. A faixa de texto inferior exibe:
-   - Nome em letras grandes: ${nome.toUpperCase()}
-   - Dados: ${nascimento} | ${alturaStr} | ${peso}kg
-   - Clube: ${clube.toUpperCase()}
+INSTRUCTIONS:
+1. Use IMAGE 1 as the base/canvas of the final output — it must remain visually identical.
+2. Place the person from IMAGE 2 into the photo area of the template (the rectangular region in the upper portion of the template). The white background in IMAGE 2 must NOT appear in the result — only the person should be placed.
+3. Replace the text in the bottom banner with:
+   - Large name: ${nome.toUpperCase()}
+   - Stats line: ${nascimento} | ${alturaStr} | ${peso}kg
+   - Club: ${clube.toUpperCase()}
+4. Do not invent or add any other elements.
 
-Não invente elementos. Não mude o fundo nem a estrutura do template. Apenas composite o rosto na área correta e atualize o texto.`
+Output the final sticker image only.`
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image',
@@ -163,7 +194,7 @@ Não invente elementos. Não mude o fundo nem a estrutura do template. Apenas co
         parts: [
           { text: prompt },
           { inlineData: { mimeType: templateMime, data: templateB64 } },
-          { inlineData: { mimeType: photoMime,    data: photoB64   } },
+          { inlineData: { mimeType: 'image/jpeg', data: personB64   } },
         ],
       }],
       config: { responseModalities: ['IMAGE', 'TEXT'] },
