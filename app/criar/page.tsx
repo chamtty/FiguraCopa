@@ -119,6 +119,54 @@ function ProgressBar({ step }: { step: Step }) {
   )
 }
 
+// ── Countdown 15 min ─────────────────────────────────────────
+function Countdown() {
+  const TOTAL = 15 * 60
+  const [secs, setSecs] = useState(TOTAL)
+  useEffect(() => {
+    const t = setInterval(() => setSecs(s => (s > 0 ? s - 1 : TOTAL)), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const m = String(Math.floor(secs / 60)).padStart(2, '0')
+  const s = String(secs % 60).padStart(2, '0')
+  return (
+    <div style={{
+      background: '#001C58', borderRadius: 12, padding: '10px 16px',
+      marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+    }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'white' }}>⏰ Oferta expira em:</span>
+      <span style={{ fontSize: 24, fontWeight: 900, color: '#FFDB00', letterSpacing: 3, fontVariantNumeric: 'tabular-nums' }}>
+        {m}:{s}
+      </span>
+    </div>
+  )
+}
+
+// ── Como funciona ─────────────────────────────────────────────
+function HowItWorks() {
+  const steps = [
+    { icon: '💳', title: 'Clique em "Receber"', desc: 'Você será levado ao checkout seguro' },
+    { icon: '✅', title: 'Conclua o pagamento', desc: 'Pix, cartão de crédito ou débito' },
+    { icon: '⬇️', title: 'Baixe sua figurinha', desc: 'Redirecionado automaticamente, sem espera' },
+  ]
+  return (
+    <div style={{ background: 'white', borderRadius: 16, padding: '16px 18px', marginBottom: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', textAlign: 'left' }}>
+      <p style={{ fontSize: 13, fontWeight: 900, color: '#001C58', textAlign: 'center', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1.2, margin: '0 0 14px' }}>
+        Como funciona
+      </p>
+      {steps.map((s, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: i < 2 ? 12 : 0 }}>
+          <div style={{ fontSize: 22, flexShrink: 0, width: 32, textAlign: 'center' }}>{s.icon}</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#111827' }}>{s.title}</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>{s.desc}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Carrossel de depoimentos ──────────────────────────────────
 const DEPOIMENTOS = [
   '/depoimentos/1.png', '/depoimentos/2.png', '/depoimentos/3.png',
@@ -246,6 +294,17 @@ export default function CriarPage() {
   const isFormValid = form.nome.trim() && form.dia && form.mes && form.ano && form.clube.trim() && form.peso && form.altura
   const baseCheckout = process.env.NEXT_PUBLIC_CHECKOUT_URL || '#'
   const checkoutUrl  = stickerId ? `${baseCheckout}?custom=${stickerId}` : baseCheckout
+
+  const handleRetry = async () => {
+    if (stickerId) {
+      try { await fetch(`/api/figurinha/${stickerId}`, { method: 'DELETE' }) } catch { /* ignora */ }
+      localStorage.removeItem('fig_entrega')
+    }
+    setFigurinha(null)
+    setStickerId(null)
+    setError(null)
+    setStep('dados')
+  }
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -517,15 +576,14 @@ export default function CriarPage() {
           <h2 style={{ fontSize: 17, fontWeight: 700, color: '#001C58', marginBottom: 8 }}>
             Sua figurinha está pronta!
           </h2>
-          <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.65, marginBottom: 18 }}>
-            Receba o arquivo digital para a impressão e participe do sorteio.
-            Leia o regulamento em seu e-mail.
+          <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.65, marginBottom: 14 }}>
+            Receba o arquivo digital em alta resolução, pronto para imprimir em papel adesivo.
           </p>
 
           <ViewerBadge />
 
           {/* Imagem com overlay anti-screenshot */}
-          <div style={{ position: 'relative', width: '100%', maxWidth: 290, margin: '0 auto 22px', boxSizing: 'border-box' }}
+          <div style={{ position: 'relative', width: '100%', maxWidth: 290, margin: '0 auto 18px', boxSizing: 'border-box' }}
             onContextMenu={e => e.preventDefault()}>
             <img src={figurinha} alt="Figurinha gerada" draggable={false}
               style={{ width: '100%', borderRadius: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.30)', display: 'block', userSelect: 'none' }} />
@@ -538,38 +596,62 @@ export default function CriarPage() {
             </div>
           </div>
 
+          {/* Countdown */}
+          <Countdown />
+
           {/* Bloco preço + CTA */}
-          <div style={{ background: 'white', borderRadius: 20, padding: '20px 16px', marginBottom: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.10)', boxSizing: 'border-box' }}>
+          <div style={{ background: 'white', borderRadius: 20, padding: '20px 16px', marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.10)', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 4 }}>
               <span style={{ fontSize: 14, color: '#9ca3af', textDecoration: 'line-through', fontWeight: 600 }}>De R$29,90</span>
               <span style={{ fontSize: 12, background: '#dcfce7', color: '#166534', fontWeight: 800, borderRadius: 8, padding: '2px 7px' }}>-57% OFF</span>
             </div>
-            <div style={{ fontSize: 40, fontWeight: 900, color: '#009B3A', lineHeight: 1, marginBottom: 16 }}>
+            <div style={{ fontSize: 40, fontWeight: 900, color: '#009B3A', lineHeight: 1, marginBottom: 6 }}>
               R$12,90
             </div>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 14px' }}>
+              Arquivo JPG em alta resolução · Impressão em casa ou gráfica
+            </p>
 
-            <a href={checkoutUrl} style={{ ...btn(false, 'navy'), fontSize: 16, padding: '18px 12px', borderRadius: 14, boxShadow: '0 6px 20px rgba(0,28,88,0.30)', marginBottom: 12 }}>
+            <a href={checkoutUrl} style={{ ...btn(false, 'navy'), fontSize: 16, padding: '18px 12px', borderRadius: 14, boxShadow: '0 6px 20px rgba(0,28,88,0.30)', marginBottom: 10 }}>
               RECEBER MINHA FIGURINHA
             </a>
 
-            <div style={{ color: '#009B3A', fontWeight: 800, fontSize: 14, marginBottom: 4 }}>
+            <div style={{ color: '#009B3A', fontWeight: 800, fontSize: 13, marginBottom: 6 }}>
               ✅ ACESSO LIBERADO NA HORA
             </div>
-            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
-              É só voltar aqui em <strong>Minha Área</strong> após o pagamento.
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 12px' }}>
+              Após o pagamento você será redirecionado automaticamente para baixar.
             </p>
+
+            {/* Formas de pagamento */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {['PIX', 'VISA', 'MASTERCARD', 'BOLETO'].map(m => (
+                <span key={m} style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid #d1d5db', borderRadius: 6, padding: '3px 9px', color: '#374151', letterSpacing: 0.5 }}>{m}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Como funciona */}
+          <HowItWorks />
+
+          {/* Garantia + Tentar novamente */}
+          <div style={{ background: '#f0fdf4', border: '2px solid #bbf7d0', borderRadius: 16, padding: '18px 16px', marginBottom: 14, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 6 }}>🛡️</div>
+            <p style={{ fontSize: 14, fontWeight: 900, color: '#166534', margin: '0 0 6px' }}>Garantia de satisfação</p>
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, margin: '0 0 14px' }}>
+              Se a figurinha não ficou como esperado,<br />
+              refaça quantas vezes quiser — de graça.
+            </p>
+            <button onClick={handleRetry} style={{ width: '100%', background: 'white', color: '#166534', border: '2px solid #16a34a', borderRadius: 10, padding: '11px 16px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
+              🔄 Tentar novamente
+            </button>
           </div>
 
           {/* Selos */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10, fontSize: 12, color: '#001C58', fontWeight: 700 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: '#001C58', fontWeight: 700 }}>
             <span>🔒 Pagamento seguro</span>
             <span>📥 Download imediato</span>
             <span>⭐ +30.000 figurinhas</span>
-          </div>
-
-          {/* Urgência */}
-          <div style={{ background: '#fef3c7', border: '1.5px solid #fcd34d', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#92400e', fontWeight: 600, marginBottom: 4 }}>
-            ⏰ Promoção por tempo limitado — Não perca!
           </div>
 
           <TestimonialsCarousel />
