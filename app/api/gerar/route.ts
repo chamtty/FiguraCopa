@@ -94,7 +94,7 @@ async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   return Buffer.from(svg)
 }
 
-export const maxDuration = 300
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
@@ -143,12 +143,17 @@ export async function POST(req: NextRequest) {
           role: 'user',
           parts: [
             {
-              text: `Remove the background from this portrait photo. Output the exact same person on a completely clean white (#FFFFFF) background. Rules:
-- Keep every detail of the person: face, hair, skin, clothing, accessories
-- Replace ALL background pixels (walls, floor, sky, furniture, any non-person elements) with solid white #FFFFFF
-- No shadows, no gradients, no blur on edges — clean hard cutout on white
-- Do not crop, resize or reposition the person
-- Output only the edited image`,
+              text: `Background removal task. Look at this photo of a person.
+
+Remove ONLY the non-person background (walls, floor, sky, furniture, objects). Replace background with solid white (#FFFFFF).
+
+IMPORTANT — keep these elements exactly as they appear in the photo:
+- The person's face, hair, skin tone
+- ALL clothing the person is wearing (shirts, jerseys, jackets — do NOT remove these)
+- Jewelry, accessories, chains, etc.
+- Shoulders and upper body
+
+Output: the same person on a clean white (#FFFFFF) background. No shadows. No cropping.`,
             },
             { inlineData: { mimeType: photoMime, data: photoB64 } },
           ],
@@ -171,21 +176,24 @@ export async function POST(req: NextRequest) {
     }
 
     // ── ETAPA 2: Compositar no template e atualizar texto ──────
-    const prompt = `You are a professional photo editor. Your task: create a Copa 2026 sticker by compositing a person's photo onto a sticker template.
+    const prompt = `You are creating a Copa 2026 Panini sticker card. Follow these steps exactly:
 
-IMAGE 1 = the sticker template (do NOT alter its structure, colors, borders, logos or decorations).
-IMAGE 2 = a person on a WHITE background (the white represents the removed background — it is transparent).
+IMAGE 1 is the sticker card template. It has:
+- A colored background with Copa 2026 graphics and decorations
+- A PHOTO AREA in the upper portion (may currently show a placeholder silhouette or shape)
+- A text strip at the bottom with name, stats, and club fields
 
-INSTRUCTIONS:
-1. Use IMAGE 1 as the base/canvas of the final output — it must remain visually identical.
-2. Place the person from IMAGE 2 into the photo area of the template (the rectangular region in the upper portion of the template). The white background in IMAGE 2 must NOT appear in the result — only the person should be placed.
-3. Replace the text in the bottom banner with:
-   - Large name: ${nome.toUpperCase()}
+IMAGE 2 is a person's photo on a WHITE background (white = removed background; only the person is real).
+
+WHAT TO DO:
+1. Keep IMAGE 1's full design: all borders, colors, Copa logos, "26" graphics, decorative elements — change nothing except the photo area and the text strip.
+2. In the PHOTO AREA: COMPLETELY REPLACE whatever is there now (including any placeholder silhouette or shape) by filling it entirely with the person from IMAGE 2. The white areas in IMAGE 2 are transparent — paste only the person, not the white. Scale the person to fill the photo area completely, edge to edge.
+3. Update the text strip at the bottom:
+   - Name (large text): ${nome.toUpperCase()}
    - Stats line: ${nascimento} | ${alturaStr} | ${peso}kg
    - Club: ${clube.toUpperCase()}
-4. Do not invent or add any other elements.
 
-Output the final sticker image only.`
+Output: the completed sticker card image only.`
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image',
