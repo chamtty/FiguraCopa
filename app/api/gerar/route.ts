@@ -19,16 +19,14 @@ const NAME  = { cy: 0.868, size: 0.052, weight: 800 }
 const STATS = { cy: 0.902, size: 0.030, weight: 600 }
 const CLUB  = { cy: 0.949, size: 0.038, weight: 700 }
 const BARS  = { x0: 0.03, y0: 0.825, x1: 0.74, y1: 1.0 }
-const HEAD  = { cx: 0.452, topY: 0.05, width: 0.42 }
+const HEAD  = { cx: 0.452, topY: 0.04, width: 0.44 }
 
 // Cor EXATA do fundo teal do template (amostrada do template-base.jpg).
-// Pulo do gato: mandamos o rosto JA com este fundo, entao mesmo que a IA
-// so "encaixe" a cabeca sem refinar, o fundo se funde com o template
-// (sem aquele quadrado cinza ao redor da cabeca).
 const TEAL = { r: 92, g: 190, b: 210 }
 
 const TARGET_W = 1200
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image'
+// Modelo correto para geração de imagens no Gemini API
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash-preview-image-generation'
 const VISION_MODEL = 'gemini-2.5-flash'
 
 // -- Fontes --
@@ -152,13 +150,13 @@ async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   return Buffer.from(svg)
 }
 
-/* 1) Localiza o rosto na foto do lead (Gemini SO localiza). */
+/* 1) Localiza o rosto na foto do lead (Gemini detecta). */
 async function detectFaceBox(
   photoB64: string, photoMime: string, imgW: number, imgH: number,
 ): Promise<{ left: number; top: number; width: number; height: number }> {
   const fallback = {
-    left: Math.round(imgW * 0.18), top: Math.round(imgH * 0.06),
-    width: Math.round(imgW * 0.64), height: Math.round(imgH * 0.68),
+    left: Math.round(imgW * 0.18), top: Math.round(imgH * 0.04),
+    width: Math.round(imgW * 0.64), height: Math.round(imgH * 0.55),
   }
   try {
     const prompt =
@@ -181,7 +179,8 @@ async function detectFaceBox(
     let r = (xmax / 1000) * imgW, b = (ymax / 1000) * imgH
     if (r <= l || b <= t) return fallback
     const bw = r - l, bh = b - t
-    l -= bw * 0.06; r += bw * 0.06; t -= bh * 0.10; b += bh * 0.08
+    // Margem extra no topo para capturar o cabelo completo
+    l -= bw * 0.08; r += bw * 0.08; t -= bh * 0.18; b += bh * 0.06
     l = Math.max(0, l); t = Math.max(0, t); r = Math.min(imgW, r); b = Math.min(imgH, b)
     const width = Math.round(r - l), height = Math.round(b - t)
     if (width < 20 || height < 20) return fallback
@@ -192,11 +191,14 @@ async function detectFaceBox(
   }
 }
 
-/* 2) Isola a cabeca e a coloca SOBRE o teal do template. */
-async function isolateHead(
+/* 2) Prepara o rosto:
+   - raw  = recorte JPEG puro, sem máscara (enviado para o modelo de IA)
+   - alpha = recorte com máscara oval suave (fallback local)
+   - teal  = alpha achatado sobre a cor do template (fallback alternativo)          */
+async function prepareFace(
   photo: Buffer,
   box: { left: number; top: number; width: number; height: number },
-): Promise<{ teal: Buffer; alpha: Buffer; w: number; h: number }> {
+): Promise<{ raw: Buffer; alpha: Buffer; teal: Buffer; w: number; h: number }> {
   const crop = await sharp(photo)
     .extract(box)
     .resize(640, 860, { fit: 'inside', withoutEnlargement: false })
@@ -204,12 +206,23 @@ async function isolateHead(
   const meta = await sharp(crop).metadata()
   const cw = meta.width!, ch = meta.height!
 
+  // Máscara oval melhorada: mais justa ao rosto, menos blur
+  // O rosto ocupa ~80% do crop (com as margens adicionadas em detectFaceBox)
+  const faceTopY   = ch * 0.04   // onde começa o topo do cabelo
+  const faceCenterY = ch * 0.43  // centro vertical do rosto
+  const rxFace = cw * 0.46       // raio horizontal (quase largura total)
+  const ryFace = ch * 0.40       // raio vertical
+
   const svg =
     '<svg width="' + cw + '" height="' + ch + '" xmlns="http://www.w3.org/2000/svg">' +
-    '<ellipse cx="' + (cw * 0.5) + '" cy="' + (ch * 0.45) + '" rx="' + (cw * 0.42) + '" ry="' + (ch * 0.41) + '" fill="#fff"/>' +
-    '<rect x="' + (cw * 0.36) + '" y="' + (ch * 0.62) + '" width="' + (cw * 0.28) + '" height="' + (ch * 0.38) + '" fill="#fff"/>' +
+    // Oval principal cobrindo rosto + cabeça
+    '<ellipse cx="' + (cw * 0.5) + '" cy="' + faceCenterY + '" rx="' + rxFace + '" ry="' + ryFace + '" fill="#fff"/>' +
+    // Pescoço: retângulo fino descendo do queixo até o final do crop
+    '<rect x="' + (cw * 0.35) + '" y="' + (faceCenterY + ryFace * 0.75) + '" width="' + (cw * 0.30) + '" height="' + (ch - (faceCenterY + ryFace * 0.75)) + '" fill="#fff"/>' +
     '</svg>'
-  const sigma = Math.max(2, cw * 0.06)
+
+  // Blur menor = bordas mais nítidas (2% em vez de 6%)
+  const sigma = Math.max(1.5, cw * 0.022)
   const maskPng = await sharp(Buffer.from(svg)).blur(sigma).png().toBuffer()
 
   const alpha = await sharp(crop)
@@ -223,11 +236,13 @@ async function isolateHead(
     .jpeg({ quality: 95 })
     .toBuffer()
 
-  return { teal, alpha, w: cw, h: ch }
+  // Raw: recorte puro sem nenhuma máscara (para envio ao modelo de IA)
+  const raw = await sharp(crop).jpeg({ quality: 95 }).toBuffer()
+
+  return { raw, alpha, teal, w: cw, h: ch }
 }
 
-/* Fallback deterministico: encaixa a cabeca (alfa) na silhueta do template
-   limpo. Garante que NUNCA volte o quadrado cinza nem um erro pro usuario. */
+/* Fallback deterministico: encaixa a cabeca (alfa) na silhueta do template. */
 async function composeHeadOnTemplate(
   baseResized: Buffer, headAlpha: Buffer, headW: number, headH: number,
   TW: number, TH: number,
@@ -268,6 +283,7 @@ export async function POST(req: NextRequest) {
     const statsLine  = nascimento + ' | ' + alturaStr + ' | ' + peso + 'kg'
     const clubeLine  = clube.toUpperCase() + ' (BRA)'
 
+    // Carrega o template base (com silhueta vazia)
     const baseCandidates = ['template-base.png', 'template-base.jpg', 'template.png', 'template.jpg']
     const templatePath = baseCandidates
       .map(f => path.join(process.cwd(), 'public', f))
@@ -286,22 +302,28 @@ export async function POST(req: NextRequest) {
     const TH = Math.round(TARGET_W * (baseMeta.height! / baseMeta.width!))
     const baseResized = await sharp(templateRaw).resize(TW, TH, { fit: 'fill' }).toBuffer()
 
+    // Detecta rosto e prepara o recorte
     const pMeta = await sharp(photoBuffer).metadata()
     const box   = await detectFaceBox(photoBuffer.toString('base64'), photoMime, pMeta.width!, pMeta.height!)
-    const head  = await isolateHead(photoBuffer, box)
+    const face  = await prepareFace(photoBuffer, box)
 
+    // Prompt para o modelo de imagem:
+    // Enviamos (1) o template limpo e (2) o rosto bruto (sem máscara),
+    // para que a IA faça a remoção de fundo e o encaixe com qualidade.
     const prompt = [
-      'You are finishing a personalized soccer sticker. You are given TWO images.',
-      'IMAGE 1 = the sticker template with teal background, green "26", COPA logo, flag, "BRA", and a yellow Brazil jersey with a GREEN collar. In the upper-center there is an EMPTY light-blue head/neck SILHOUETTE. The two empty teal bars at the bottom must stay EMPTY.',
-      'IMAGE 2 = a real person head, already placed on the SAME teal color as the template background.',
-      'TASK: Composite the head from IMAGE 2 into the empty silhouette of IMAGE 1 as a clean front-facing portrait (head + neck).',
-      'RULES:',
-      '- PRESERVE THE IDENTITY EXACTLY: same face, eyes, nose, mouth, skin tone, hair and expression as IMAGE 2. Do NOT beautify, age, slim, change ethnicity or stylize. Must look like a PHOTO of the same person.',
-      '- Blend the hair and all edges SMOOTHLY into the teal background. NO rectangular box, NO hard seam, NO leftover original background around the head.',
-      '- Build a realistic NECK in the person skin tone that connects naturally into the green jersey collar, with no empty teal gap between chin and collar.',
-      '- Keep EVERYTHING ELSE identical to IMAGE 1: the green "26", the COPA logo, the flag, "BRA", the jersey, the teal background and the two empty bottom bars.',
-      '- Do NOT add any text anywhere.',
-      'Output: only the finished sticker image.',
+      'You are creating a personalized soccer sticker. You have TWO images.',
+      'IMAGE 1 = the sticker template. It has a teal/light-blue background with a green "26", a COPA trophy logo, a Brazilian flag badge, "BRA" lettering, and a real yellow Brazil jersey (CBF badge). In the upper-center there is a light-blue EMPTY head silhouette — that is where the person\'s face must go. The two teal bars at the bottom must stay completely empty (no text).',
+      'IMAGE 2 = a real photo of the person whose face should be placed in the sticker.',
+      'TASK:',
+      '1. Extract the person\'s face and neck from IMAGE 2, removing the background completely.',
+      '2. Place the clean face inside the empty head silhouette of IMAGE 1, sized to fill it naturally.',
+      '3. Blend the hair/neck edges smoothly into the teal background — no rectangular borders, no hard seams.',
+      '4. Build a natural neck that connects seamlessly into the green jersey collar.',
+      'STRICT RULES:',
+      '- Preserve the person\'s identity EXACTLY: same face, skin tone, eyes, hair. Do NOT change their appearance.',
+      '- Do NOT add any text or numbers anywhere.',
+      '- Keep all other elements of IMAGE 1 unchanged: jersey, logos, colors, bottom bars.',
+      'Output: only the finished sticker (same dimensions as IMAGE 1).',
     ].join('\n')
 
     let generated: Buffer | null = null
@@ -313,7 +335,8 @@ export async function POST(req: NextRequest) {
           parts: [
             { text: prompt },
             { inlineData: { mimeType: templateMime, data: templateRaw.toString('base64') } },
-            { inlineData: { mimeType: 'image/jpeg',  data: head.teal.toString('base64')    } },
+            // Envia o rosto PURO (sem máscara) para que a IA faça a remoção de fundo corretamente
+            { inlineData: { mimeType: 'image/jpeg', data: face.raw.toString('base64') } },
           ],
         }],
         config: { responseModalities: ['IMAGE', 'TEXT'] },
@@ -323,25 +346,30 @@ export async function POST(req: NextRequest) {
       const imgData = (parts.find((p: any) => p.inlineData?.data) as any)?.inlineData?.data as string | undefined
       if (imgData) {
         generated = await sharp(Buffer.from(imgData, 'base64')).resize(TW, TH, { fit: 'fill' }).toBuffer()
+        console.log('[gerar] Gemini gerou imagem com sucesso')
       } else {
-        console.error('[gerar] Gemini nao retornou imagem')
+        console.error('[gerar] Gemini nao retornou imagem, usando composicao local')
       }
     } catch (e) {
-      console.error('[gerar] modelo de imagem falhou, usando composicao local:', e)
+      console.error('[gerar] Modelo de imagem falhou, usando composicao local:', e)
     }
 
+    // Fallback: composicao local com mascara oval melhorada
     if (!generated) {
-      generated = await composeHeadOnTemplate(baseResized, head.alpha, head.w, head.h, TW, TH)
+      generated = await composeHeadOnTemplate(baseResized, face.alpha, face.w, face.h, TW, TH)
     }
 
+    // Restaura as barras do template limpo (garante que o texto de exemplo sumiu)
     const bx = Math.round(BARS.x0 * TW), by = Math.round(BARS.y0 * TH)
     const bw = Math.round((BARS.x1 - BARS.x0) * TW), bh = Math.round((BARS.y1 - BARS.y0) * TH)
     const cleanBars = await sharp(baseResized)
       .extract({ left: bx, top: by, width: bw, height: Math.min(bh, TH - by) })
       .toBuffer()
 
+    // Overlay de texto com nome, stats e clube
     const textSvg = await buildTextSvg(TW, TH, nome.toUpperCase(), statsLine, clubeLine)
 
+    // Imagem final limpa (sem watermark) — salva no Vercel Blob
     const cleanImage = await sharp(generated)
       .composite([
         { input: cleanBars, top: by, left: bx },
@@ -351,8 +379,9 @@ export async function POST(req: NextRequest) {
       .toBuffer()
 
     const id = crypto.randomUUID()
-    const blobResult = await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
+    await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
 
+    // Versão com watermark PREVIEW para exibir ao usuario (antes do pagamento)
     const watermarkSvg = await buildWatermarkSvg(TW, TH)
     const previewImage = await sharp(cleanImage)
       .composite([{ input: watermarkSvg, top: 0, left: 0 }])
@@ -360,10 +389,10 @@ export async function POST(req: NextRequest) {
       .toBuffer()
 
     return NextResponse.json({
-      image: 'data:image/jpeg;base64,' + previewImage.toString('base64'),
+      image: `data:image/jpeg;base64,${previewImage.toString('base64')}`,
       id,
-      blobUrl: blobResult.url,
     })
+
   } catch (err) {
     console.error('[gerar]', err)
     return NextResponse.json(
