@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
     const TH = Math.round(TARGET_W * (templateMeta.height! / templateMeta.width!))
 
     const cleanImage = await sharp(Buffer.from(imgData, 'base64'))
-      .resize(TARGET_W, TH, { fit: 'cover', position: 'centre' })
+      .resize(TARGET_W, TH, { fit: 'fill' })
       .jpeg({ quality: 92 })
       .toBuffer()
 
