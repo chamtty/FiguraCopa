@@ -4,59 +4,55 @@ import { list, put } from '@vercel/blob'
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
+    console.log('[webhook/kirvano] evento:', body?.event, '| status:', body?.status)
 
-    // Kirvano passa o stickerId no campo "custom" da URL do checkout
-    const stickerId: string | undefined =
-      body?.data?.purchase?.custom ||
-      body?.data?.custom ||
-      body?.purchase?.custom ||
-      body?.custom
-
-    const status: string =
-      body?.data?.purchase?.status ||
-      body?.data?.status ||
-      body?.purchase?.status ||
-      body?.status ||
-      ''
+    // Kirvano envia o e-mail do comprador em customer.email
+    const email: string | undefined = body?.customer?.email?.toLowerCase().trim()
+    const status: string = (body?.status || '').toUpperCase()
+    const event: string  = (body?.event  || '').toUpperCase()
 
     // Só processa pagamentos aprovados
-    const aprovado = ['approved', 'paid', 'complete', 'completed', 'APPROVED', 'PAID'].includes(status)
-    if (!aprovado) {
-      console.log('[webhook/kirvano] status ignorado:', status)
+    if (status !== 'APPROVED' && event !== 'SALE_APPROVED') {
+      console.log('[webhook/kirvano] ignorado — status:', status, 'event:', event)
       return NextResponse.json({ ok: true, skipped: true })
     }
 
-    if (!stickerId) {
-      console.error('[webhook/kirvano] stickerId ausente. payload:', JSON.stringify(body))
-      return NextResponse.json({ error: 'stickerId ausente' }, { status: 400 })
+    if (!email) {
+      console.error('[webhook/kirvano] email ausente no payload')
+      return NextResponse.json({ error: 'email ausente' }, { status: 400 })
     }
 
-    // Busca metadata por ID para obter o e-mail do lead
-    const { blobs: metaBlobs } = await list({ prefix: 'figurinhas/meta/' + stickerId + '.json', limit: 1 })
-    if (!metaBlobs.length) {
-      console.error('[webhook/kirvano] metadata nao encontrado para:', stickerId)
-      return NextResponse.json({ error: 'metadata nao encontrado' }, { status: 404 })
+    console.log('[webhook/kirvano] processando pagamento para:', email)
+
+    // Busca todas as figurinhas do lead pelo índice de e-mail
+    const emailKey = email.replace('@', '--at--')
+    const { blobs } = await list({ prefix: 'figurinhas/idx/' + emailKey + '/' })
+
+    if (!blobs.length) {
+      console.error('[webhook/kirvano] nenhuma figurinha encontrada para:', email)
+      return NextResponse.json({ error: 'figurinha nao encontrada' }, { status: 404 })
     }
 
-    const metaRes = await fetch(metaBlobs[0].url)
-    const meta: { email: string; nome: string; blobUrl: string } = await metaRes.json()
+    // Marca todas as figurinhas não pagas como pagas
+    let marcadas = 0
+    for (const blob of blobs) {
+      const res  = await fetch(blob.url)
+      const data: { nome: string; blobUrl: string; paid: boolean } = await res.json()
 
-    if (!meta.email) {
-      return NextResponse.json({ error: 'email ausente no metadata' }, { status: 400 })
+      if (!data.paid) {
+        const updated = JSON.stringify({ nome: data.nome, blobUrl: data.blobUrl, paid: true })
+        await put(blob.pathname, Buffer.from(updated), {
+          access: 'public',
+          addRandomSuffix: false,
+          contentType: 'application/json',
+        })
+        marcadas++
+        console.log('[webhook/kirvano] liberada:', blob.pathname)
+      }
     }
 
-    // Atualiza o index do lead marcando paid:true
-    // put() com addRandomSuffix:false sobrescreve o arquivo existente
-    const emailKey = meta.email.toLowerCase().replace('@', '--at--')
-    const idx = JSON.stringify({ nome: meta.nome, blobUrl: meta.blobUrl, paid: true })
-    await put('figurinhas/idx/' + emailKey + '/' + stickerId + '.json', Buffer.from(idx), {
-      access: 'public',
-      addRandomSuffix: false,
-      contentType: 'application/json',
-    })
-
-    console.log('[webhook/kirvano] figurinha liberada para:', meta.email, 'id:', stickerId)
-    return NextResponse.json({ ok: true })
+    console.log('[webhook/kirvano] total liberadas:', marcadas, 'para:', email)
+    return NextResponse.json({ ok: true, liberadas: marcadas })
 
   } catch (err) {
     console.error('[webhook/kirvano]', err)
