@@ -6,11 +6,44 @@ import path from 'path'
 import fs from 'fs'
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! })
-
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image'
+const IMAGE_MODEL  = process.env.GEMINI_IMAGE_MODEL  || 'gemini-3-pro-image'
+const VISION_MODEL = process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash'
 const TARGET_W = 1200
 
 export const maxDuration = 60
+
+/* Detecta o rosto e retorna recorte quadrado com padding generoso */
+async function cropFace(photoBuf: Buffer, photoMime: string): Promise<Buffer> {
+  const meta = await sharp(photoBuf).metadata()
+  const W = meta.width!, H = meta.height!
+  let left = Math.round(W * 0.15), top = Math.round(H * 0.05)
+  let width = Math.round(W * 0.70), height = Math.round(H * 0.70)
+  try {
+    const prompt = 'Detect the single main person in this photo. Return ONLY strict JSON: {"box_2d":[ymin,xmin,ymax,xmax]} where values are integers 0-1000 normalized to image size. Include the full head (hair to chin) and shoulders. No markdown.'
+    const res = await ai.models.generateContent({
+      model: VISION_MODEL,
+      contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: photoMime, data: photoBuf.toString('base64') } }] }],
+      config: { responseMimeType: 'application/json', temperature: 0 },
+    })
+    const txt = res.text ?? ''
+    const m = txt.match(/\[\s*\d+[\s,]+\d+[\s,]+\d+[\s,]+\d+\s*\]/)
+    if (m) {
+      const [ymin, xmin, ymax, xmax] = JSON.parse(m[0]) as number[]
+      const pad = 0.15
+      const l = Math.max(0, ((xmin / 1000) - pad) * W)
+      const t = Math.max(0, ((ymin / 1000) - pad) * H)
+      const r = Math.min(W, ((xmax / 1000) + pad) * W)
+      const b = Math.min(H, ((ymax / 1000) + pad) * H)
+      left = Math.round(l); top = Math.round(t)
+      width = Math.round(r - l); height = Math.round(b - t)
+    }
+  } catch { /* usa fallback */ }
+  return sharp(photoBuf)
+    .extract({ left, top, width, height })
+    .resize(800, 800, { fit: 'inside' })
+    .jpeg({ quality: 95 })
+    .toBuffer()
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,10 +67,9 @@ export async function POST(req: NextRequest) {
       : alturaNum.toString().replace('.', ',') + 'm'
     const dd = String(parseInt(dia)).padStart(2, '0')
     const mm = String(parseInt(mes)).padStart(2, '0')
-    const nascimento = dd + '-' + mm + '-' + ano
     const nomeUpper  = nome.toUpperCase()
     const clubeUpper = clube.toUpperCase() + ' (BRA)'
-    const infoLine   = nascimento + ' | ' + alturaStr + ' | ' + peso + 'kg'
+    const infoLine   = dd + '-' + mm + '-' + ano + ' | ' + alturaStr + ' | ' + peso + 'kg'
 
     const templatePath = path.join(process.cwd(), 'public', 'template.jpg')
     if (!fs.existsSync(templatePath)) {
@@ -48,25 +80,32 @@ export async function POST(req: NextRequest) {
     const photoBuf  = Buffer.from(await photoFile.arrayBuffer())
     const photoMime = photoFile.type || 'image/jpeg'
 
+    // Pre-recorta apenas o rosto para nao vazar fundo da foto
+    const faceCrop = await cropFace(photoBuf, photoMime)
+
     const promptParts = [
-      'TASK: Face-swap on a soccer sticker card.',
+      'TASK: Photorealistic face transplant on a soccer sticker card.',
       '',
-      'IMAGE 1 = the sticker card. This is your canvas and your output.',
-      'IMAGE 2 = a photo of a person. Extract only their face — ignore the background completely.',
+      'IMAGE 1 = the soccer sticker card. This is BOTH your canvas and your output.',
+      'IMAGE 2 = a cropped photo of a face. Use this face as-is, photorealistic, without stylizing or redrawing.',
       '',
-      'Make exactly two changes to IMAGE 1:',
-      '1. Replace the face/head in the card with the face from IMAGE 2. Blend edges into the teal background. Keep the body/jersey exactly as-is.',
-      '2. Replace the text in the bottom bar with:',
-      '   Name: ' + nomeUpper,
-      '   Info: ' + infoLine,
-      '   Club: ' + clubeUpper,
+      'STEP 1 - FACE REPLACEMENT (photorealistic only):',
+      '- In IMAGE 1, replace Neymar head/face with the face from IMAGE 2.',
+      '- Preserve EXACTLY the real skin tone, hair, eyes, nose, mouth from IMAGE 2. Do NOT redraw, illustrate, or stylize the face.',
+      '- Blend the hair edges and neck smoothly into the teal background of the card.',
+      '- Keep Neymar body/jersey exactly as-is. Only the head changes.',
       '',
-      'OUTPUT RULES (critical):',
-      '- Output only the sticker card, filling the entire frame edge to edge, same proportions as IMAGE 1.',
-      '- Do NOT show any background from IMAGE 2.',
-      '- Do NOT show the card floating on the person photo.',
-      '- Do NOT rotate or scale down the card.',
-      '- Everything else in IMAGE 1 stays identical: yellow border, teal background, green 26, COPA logo, flag, BRA, jersey.',
+      'STEP 2 - TEXT UPDATE in the bottom bar only:',
+      '  Name: ' + nomeUpper,
+      '  Info: ' + infoLine,
+      '  Club: ' + clubeUpper,
+      '',
+      'OUTPUT RULES (non-negotiable):',
+      '- Output = IMAGE 1 at 100% size, edge to edge, no letterboxing.',
+      '- Do NOT include any background, wall, or environment from IMAGE 2.',
+      '- Do NOT place the card floating over the photo.',
+      '- Do NOT crop or rotate the card.',
+      '- Preserve everything else: yellow border, teal background, green 26, COPA logo, flag, BRA, jersey.',
     ]
     const prompt = promptParts.join('\n')
 
@@ -77,7 +116,7 @@ export async function POST(req: NextRequest) {
         parts: [
           { text: prompt },
           { inlineData: { mimeType: 'image/jpeg', data: templateBuf.toString('base64') } },
-          { inlineData: { mimeType: photoMime,    data: photoBuf.toString('base64') } },
+          { inlineData: { mimeType: 'image/jpeg', data: faceCrop.toString('base64') } },
         ],
       }],
       config: { responseModalities: ['IMAGE', 'TEXT'] },
@@ -96,7 +135,6 @@ export async function POST(req: NextRequest) {
     const templateMeta = await sharp(templateBuf).metadata()
     const TH = Math.round(TARGET_W * (templateMeta.height! / templateMeta.width!))
 
-    // Usa 'cover' com crop central para preservar proporcoes sem distorcer
     const cleanImage = await sharp(Buffer.from(imgData, 'base64'))
       .resize(TARGET_W, TH, { fit: 'cover', position: 'centre' })
       .jpeg({ quality: 92 })
@@ -132,13 +170,11 @@ function buildWatermarkSvg(tw: number, th: number): string {
   const smallPos  = [0.12, 0.29, 0.46, 0.62, 0.79]
   let svg = '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">'
   for (const f of bigPos) {
-    const y = Math.round(th * f)
-    const cx = Math.round(tw / 2)
+    const y = Math.round(th * f); const cx = Math.round(tw / 2)
     svg += '<text x="' + cx + '" y="' + y + '" font-family="Impact,Arial,sans-serif" font-size="' + size + '" font-weight="bold" fill="white" fill-opacity="0.21" text-anchor="middle" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW - PREVIEW</text>'
   }
   for (const f of smallPos) {
-    const y = Math.round(th * f)
-    const cx = Math.round(tw / 2)
+    const y = Math.round(th * f); const cx = Math.round(tw / 2)
     svg += '<text x="' + cx + '" y="' + y + '" font-family="Arial,sans-serif" font-size="' + smallSize + '" fill="white" fill-opacity="0.24" text-anchor="middle" transform="rotate(-38,' + cx + ',' + y + ')">figurinha-copa2026.com</text>'
   }
   svg += '</svg>'
