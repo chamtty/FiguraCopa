@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 
-type Step = 'aviso' | 'upload' | 'dados' | 'loading' | 'preview'
+type Step = 'aviso' | 'upload' | 'dados' | 'confirmar' | 'loading' | 'preview'
 
 interface FormFields {
   nome: string
@@ -96,7 +96,7 @@ const labelStyle: React.CSSProperties = {
 
 // ── Barra de progresso ────────────────────────────────────────
 function ProgressBar({ step }: { step: Step }) {
-  const map: Record<Step, number> = { aviso: 0, upload: 25, dados: 50, loading: 75, preview: 100 }
+  const map: Record<Step, number> = { aviso: 0, upload: 25, dados: 50, confirmar: 70, loading: 85, preview: 100 }
   const pct = map[step]
   if (step === 'aviso') return null
   return (
@@ -105,6 +105,7 @@ function ProgressBar({ step }: { step: Step }) {
         <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>
           {step === 'upload' && 'Passo 1 de 3'}
           {step === 'dados' && 'Passo 2 de 3'}
+          {step === 'confirmar' && 'Passo 3 de 3'}
           {(step === 'loading' || step === 'preview') && 'Finalizando'}
         </span>
         <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>{pct}%</span>
@@ -291,7 +292,14 @@ export default function CriarPage() {
     }
   }
 
-  const isFormValid = form.nome.trim() && form.dia && form.mes && form.ano && form.clube.trim() && form.peso && form.altura
+  const nomeTemLetras = /[a-zA-ZÀ-ÿ]/.test(form.nome.trim()) && form.nome.trim().length >= 2
+  const isFormValid = nomeTemLetras && form.dia && form.mes && form.ano && form.clube.trim() && form.peso && form.altura
+
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  const alturaNum = parseFloat(form.altura)
+  const alturaDisplay = !isNaN(alturaNum) && alturaNum > 3
+    ? `${(alturaNum / 100).toFixed(2).replace('.', ',')}m`
+    : form.altura ? `${form.altura}m` : ''
   const baseCheckout = process.env.NEXT_PUBLIC_CHECKOUT_URL || '#'
   const checkoutUrl  = stickerId ? `${baseCheckout}?custom=${stickerId}` : baseCheckout
 
@@ -631,21 +639,13 @@ export default function CriarPage() {
             </div>
           </div>
 
+          {/* Tentar novamente */}
+          <button onClick={handleRetry} style={{ width: '100%', background: 'transparent', color: '#6b7280', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 14, textDecoration: 'underline' }}>
+            Não gostou do resultado? Tente novamente
+          </button>
+
           {/* Como funciona */}
           <HowItWorks />
-
-          {/* Garantia + Tentar novamente */}
-          <div style={{ background: '#f0fdf4', border: '2px solid #bbf7d0', borderRadius: 16, padding: '18px 16px', marginBottom: 14, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, marginBottom: 6 }}>🛡️</div>
-            <p style={{ fontSize: 14, fontWeight: 900, color: '#166534', margin: '0 0 6px' }}>Garantia de satisfação</p>
-            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, margin: '0 0 14px' }}>
-              Se a figurinha não ficou como esperado,<br />
-              refaça quantas vezes quiser — de graça.
-            </p>
-            <button onClick={handleRetry} style={{ width: '100%', background: 'white', color: '#166534', border: '2px solid #16a34a', borderRadius: 10, padding: '11px 16px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-              🔄 Tentar novamente
-            </button>
-          </div>
 
           {/* Selos */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: '#001C58', fontWeight: 700 }}>
