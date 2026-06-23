@@ -49,43 +49,24 @@ export async function POST(req: NextRequest) {
     const photoMime = photoFile.type || 'image/jpeg'
 
     const promptParts = [
-      'You are an expert image compositor. Your task is to create a personalized FIFA World Cup 2026 collectible sticker card.',
-      'You have been provided with two images:',
-      '   * IMAGE 1: A complete sticker card featuring Neymar Jr (this is the base layout to replicate exactly)',
-      '   * IMAGE 2: A portrait photo of a new person whose face will replace Neymar\'s',
+      'TASK: Face-swap on a soccer sticker card.',
       '',
-      'STEP 1 - FACE REPLACEMENT:',
-      '   * Keep IMAGE 1 as the base card entirely',
-      '   * Remove only Neymar\'s face and head from IMAGE 1',
-      '   * Extract the face and head from IMAGE 2 and place it in exactly the same position, scale, and angle where Neymar\'s head was',
-      '   * Blend the neck naturally with the existing yellow jersey collar in IMAGE 1',
-      '   * Preserve the person\'s real skin tone, hair texture, and facial features from IMAGE 2',
-      '   * The expression should be natural and front-facing, similar to a professional player portrait',
-      '   * Match the lighting of the card (soft, neutral, front-lit studio style)',
-      '   * Do NOT change the body, jersey, or any part of the card background',
+      'IMAGE 1 = the sticker card. This is your canvas and your output.',
+      'IMAGE 2 = a photo of a person. Extract only their face — ignore the background completely.',
       '',
-      'STEP 2 - TEXT UPDATE: Replace only the text inside the bottom dark teal bar:',
-      'NAME (bold, white, all caps, large font): ' + nomeUpper,
-      'INFO LINE (white, smaller font): ' + infoLine,
-      'CLUB LINE (white, smaller font): ' + clubeUpper,
+      'Make exactly two changes to IMAGE 1:',
+      '1. Replace the face/head in the card with the face from IMAGE 2. Blend edges into the teal background. Keep the body/jersey exactly as-is.',
+      '2. Replace the text in the bottom bar with:',
+      '   Name: ' + nomeUpper,
+      '   Info: ' + infoLine,
+      '   Club: ' + clubeUpper,
       '',
-      'STEP 3 - PRESERVE EXACTLY (do not change anything else):',
-      '   * Teal/cyan blue background',
-      '   * Large green decorative "26" typography in the background',
-      '   * FIFA World Cup trophy icon + "COPA" text in the top right corner',
-      '   * Brazilian flag circle badge on the right side',
-      '   * "BRA" vertical text on the right side',
-      '   * Yellow Brazil national team jersey with green collar (Neymar\'s body stays)',
-      '   * Dark teal rounded pill-shaped bottom information bar shape and color',
-      '   * All card proportions, dimensions, and layout',
-      '',
-      'OUTPUT RULES - CRITICAL:',
-      '   * The final image must contain ONLY the sticker card, nothing else',
-      '   * Do NOT show any background, wall, room, or environment from IMAGE 2',
-      '   * Do NOT overlay or place the card on top of the person\'s photo',
-      '   * The sticker card must fill the entire output image from edge to edge',
-      '   * Crop and output the card exactly as it appears in IMAGE 1, with the new face and updated text - just the card, full frame, ready to sell',
-      '   * Think of it as: reproduce IMAGE 1 at full size, but with the face swapped and text updated',
+      'OUTPUT RULES (critical):',
+      '- Output only the sticker card, filling the entire frame edge to edge, same proportions as IMAGE 1.',
+      '- Do NOT show any background from IMAGE 2.',
+      '- Do NOT show the card floating on the person photo.',
+      '- Do NOT rotate or scale down the card.',
+      '- Everything else in IMAGE 1 stays identical: yellow border, teal background, green 26, COPA logo, flag, BRA, jersey.',
     ]
     const prompt = promptParts.join('\n')
 
@@ -115,8 +96,9 @@ export async function POST(req: NextRequest) {
     const templateMeta = await sharp(templateBuf).metadata()
     const TH = Math.round(TARGET_W * (templateMeta.height! / templateMeta.width!))
 
+    // Usa 'cover' com crop central para preservar proporcoes sem distorcer
     const cleanImage = await sharp(Buffer.from(imgData, 'base64'))
-      .resize(TARGET_W, TH, { fit: 'fill' })
+      .resize(TARGET_W, TH, { fit: 'cover', position: 'centre' })
       .jpeg({ quality: 92 })
       .toBuffer()
 
