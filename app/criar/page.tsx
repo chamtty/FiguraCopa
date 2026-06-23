@@ -6,6 +6,7 @@ type Step = 'aviso' | 'upload' | 'dados' | 'confirmar' | 'loading' | 'preview'
 
 interface FormFields {
   nome: string
+  email: string
   dia: string
   mes: string
   ano: string
@@ -242,7 +243,7 @@ export default function CriarPage() {
   const [step, setStep] = useState<Step>('aviso')
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [form, setForm] = useState<FormFields>({ nome: '', dia: '', mes: '', ano: '', clube: '', peso: '', altura: '' })
+  const [form, setForm] = useState<FormFields>({ nome: '', email: '', dia: '', mes: '', ano: '', clube: '', peso: '', altura: '' })
   const [figurinha, setFigurinha] = useState<string | null>(null)
   const [stickerId, setStickerId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -293,7 +294,8 @@ export default function CriarPage() {
   }
 
   const nomeTemLetras = /[a-zA-ZÀ-ÿ]/.test(form.nome.trim()) && form.nome.trim().length >= 2
-  const isFormValid = nomeTemLetras && form.dia && form.mes && form.ano && form.clube.trim() && form.peso && form.altura
+  const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
+  const isFormValid = nomeTemLetras && emailValido && form.dia && form.mes && form.ano && form.clube.trim() && form.peso && form.altura
 
   const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
   const alturaNum = parseFloat(form.altura)
@@ -454,6 +456,16 @@ export default function CriarPage() {
                   <label style={labelStyle}>Nome completo</label>
                   <input style={inputStyle} placeholder="Ex: Pedro Henrique"
                     value={form.nome} onChange={setField('nome')} maxLength={30} />
+                </div>
+
+                {/* E-mail */}
+                <div>
+                  <label style={labelStyle}>E-mail 📧</label>
+                  <input style={inputStyle} placeholder="Ex: pedro@email.com"
+                    type="email" value={form.email} onChange={setField('email')} />
+                  <p style={{ fontSize: 11, color: '#6b7280', margin: '4px 0 0' }}>
+                    Enviaremos sua figurinha por aqui após o pagamento
+                  </p>
                 </div>
 
                 {/* Data — 3 selects responsivos */}

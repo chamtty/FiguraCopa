@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     const mes    = (formData.get('mes')    as string | null) || ''
     const ano    = (formData.get('ano')    as string | null) || ''
     const clube  = (formData.get('clube')  as string | null)?.trim() || ''
+    const email  = (formData.get('email')  as string | null)?.trim() || ''
     const peso   = (formData.get('peso')   as string | null) || ''
     const altura = (formData.get('altura') as string | null) || ''
     if (!photoFile || !nome || !clube) {
@@ -105,7 +106,27 @@ export async function POST(req: NextRequest) {
       .toBuffer()
 
     const id = crypto.randomUUID()
-    await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
+    const blob = await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
+
+    // Salva metadata por ID (usado pelo webhook para lookup via stickerId)
+    const meta = JSON.stringify({ email, nome: nomeUpper, blobUrl: blob.url })
+    await put('figurinhas/meta/' + id + '.json', Buffer.from(meta), {
+      access: 'public',
+      addRandomSuffix: false,
+      contentType: 'application/json',
+    })
+
+    // Salva index por e-mail (usado pela área de membros)
+    // paid:false até o webhook confirmar o pagamento
+    if (email) {
+      const emailKey = email.toLowerCase().replace('@', '--at--')
+      const idx = JSON.stringify({ nome: nomeUpper, blobUrl: blob.url, paid: false })
+      await put('figurinhas/idx/' + emailKey + '/' + id + '.json', Buffer.from(idx), {
+        access: 'public',
+        addRandomSuffix: false,
+        contentType: 'application/json',
+      })
+    }
 
     // Watermark para preview
     const wm = buildWatermarkSvg(TW, TH)
