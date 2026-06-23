@@ -152,8 +152,7 @@ async function buildWatermarkSvg(tw: number, th: number): Promise<Buffer> {
   return Buffer.from(svg)
 }
 
-/* 1) Localiza o rosto na foto do lead (Gemini SO localiza).
-   Retorna bbox em pixels [left, top, width, height]. */
+/* 1) Localiza o rosto na foto do lead (Gemini SO localiza). */
 async function detectFaceBox(
   photoB64: string, photoMime: string, imgW: number, imgH: number,
 ): Promise<{ left: number; top: number; width: number; height: number }> {
@@ -181,7 +180,6 @@ async function detectFaceBox(
     let l = (xmin / 1000) * imgW, t = (ymin / 1000) * imgH
     let r = (xmax / 1000) * imgW, b = (ymax / 1000) * imgH
     if (r <= l || b <= t) return fallback
-    // respiro JUSTO: o suficiente p/ cabelo/orelhas/queixo, sem trazer muito fundo
     const bw = r - l, bh = b - t
     l -= bw * 0.06; r += bw * 0.06; t -= bh * 0.10; b += bh * 0.08
     l = Math.max(0, l); t = Math.max(0, t); r = Math.min(imgW, r); b = Math.min(imgH, b)
@@ -194,12 +192,7 @@ async function detectFaceBox(
   }
 }
 
-/* 2) Isola a cabeca e a coloca SOBRE o teal do template.
-   Mascara suave (elipse da cabeca + coluna do pescoco) com borda esfumada ->
-   o fundo original (quarto, roupa, estudio) some e da lugar ao MESMO teal do
-   template. Retorna { teal, alpha }:
-     teal  = cabeca achatada sobre o teal (input p/ o Gemini)
-     alpha = PNG com transparencia (usado no fallback/composicao) */
+/* 2) Isola a cabeca e a coloca SOBRE o teal do template. */
 async function isolateHead(
   photo: Buffer,
   box: { left: number; top: number; width: number; height: number },
@@ -211,8 +204,6 @@ async function isolateHead(
   const meta = await sharp(crop).metadata()
   const cw = meta.width!, ch = meta.height!
 
-  // Mascara: elipse da cabeca + coluna do pescoco, branco sobre transparente.
-  // O blur esfuma a borda (alfa) -> cabelo/pescoco derretem no fundo.
   const svg =
     '<svg width="' + cw + '" height="' + ch + '" xmlns="http://www.w3.org/2000/svg">' +
     '<ellipse cx="' + (cw * 0.5) + '" cy="' + (ch * 0.45) + '" rx="' + (cw * 0.42) + '" ry="' + (ch * 0.41) + '" fill="#fff"/>' +
@@ -221,14 +212,12 @@ async function isolateHead(
   const sigma = Math.max(2, cw * 0.06)
   const maskPng = await sharp(Buffer.from(svg)).blur(sigma).png().toBuffer()
 
-  // Aplica a mascara como canal alfa (dest-in mantem so onde a mascara existe).
   const alpha = await sharp(crop)
     .ensureAlpha()
     .composite([{ input: maskPng, blend: 'dest-in' }])
     .png()
     .toBuffer()
 
-  // Versao achatada sobre o teal do template (input p/ o Gemini).
   const teal = await sharp(alpha)
     .flatten({ background: TEAL })
     .jpeg({ quality: 95 })
@@ -238,8 +227,7 @@ async function isolateHead(
 }
 
 /* Fallback deterministico: encaixa a cabeca (alfa) na silhueta do template
-   limpo. Usado se o Gemini de imagem falhar - garante que NUNCA volte o
-   quadrado cinza nem um erro pro usuario. */
+   limpo. Garante que NUNCA volte o quadrado cinza nem um erro pro usuario. */
 async function composeHeadOnTemplate(
   baseResized: Buffer, headAlpha: Buffer, headW: number, headH: number,
   TW: number, TH: number,
@@ -280,7 +268,6 @@ export async function POST(req: NextRequest) {
     const statsLine  = nascimento + ' | ' + alturaStr + ' | ' + peso + 'kg'
     const clubeLine  = clube.toUpperCase() + ' (BRA)'
 
-    // -- Template base COPA limpo (cabeca e tarjas vazias) --
     const baseCandidates = ['template-base.png', 'template-base.jpg', 'template.png', 'template.jpg']
     const templatePath = baseCandidates
       .map(f => path.join(process.cwd(), 'public', f))
@@ -294,34 +281,26 @@ export async function POST(req: NextRequest) {
     const photoBuffer = Buffer.from(await photoFile.arrayBuffer())
     const photoMime   = (photoFile.type || 'image/jpeg')
 
-    // Resolucao de trabalho
     const baseMeta = await sharp(templateRaw).metadata()
     const TW = TARGET_W
     const TH = Math.round(TARGET_W * (baseMeta.height! / baseMeta.width!))
     const baseResized = await sharp(templateRaw).resize(TW, TH, { fit: 'fill' }).toBuffer()
 
-    // -- 1) Localizar o ROSTO e isola-lo sobre o teal do template --
     const pMeta = await sharp(photoBuffer).metadata()
     const box   = await detectFaceBox(photoBuffer.toString('base64'), photoMime, pMeta.width!, pMeta.height!)
     const head  = await isolateHead(photoBuffer, box)
 
-    // -- 2) Gemini FUNDE a cabeca na silhueta (refino/composicao) --
     const prompt = [
       'You are finishing a personalized soccer sticker. You are given TWO images.',
-      '',
-      'IMAGE 1 = the sticker template. It already contains everything: the teal background, the green "26", the COPA logo, the flag, "BRA", and a yellow Brazil jersey with a GREEN collar. In the upper-center there is an EMPTY light-blue head/neck SILHOUETTE. The two empty teal bars at the bottom must stay EMPTY.',
-      '',
-      'IMAGE 2 = a real person\'s head, already placed on the SAME teal color as the template background.',
-      '',
-      'TASK: Composite the head from IMAGE 2 into the empty silhouette of IMAGE 1 as a clean, front-facing portrait (head + neck).',
-      '',
-      'STRICT RULES:',
-      '- PRESERVE THE IDENTITY EXACTLY: same face shape, eyes, nose, mouth, eyebrows, skin tone, hair and expression as IMAGE 2. Do NOT beautify, age, slim, change ethnicity, or stylize. It must look like a PHOTO of the same person.',
-      '- Blend the hair and all edges SMOOTHLY into the teal background. There must be NO rectangular box, NO hard seam, and NO leftover original background (no room, no furniture, no clothing, no studio/gray box) around the head.',
-      '- Build a realistic NECK in the person\'s own skin tone that connects naturally into the green jersey collar - no empty teal gap between the chin and the collar.',
+      'IMAGE 1 = the sticker template with teal background, green "26", COPA logo, flag, "BRA", and a yellow Brazil jersey with a GREEN collar. In the upper-center there is an EMPTY light-blue head/neck SILHOUETTE. The two empty teal bars at the bottom must stay EMPTY.',
+      'IMAGE 2 = a real person head, already placed on the SAME teal color as the template background.',
+      'TASK: Composite the head from IMAGE 2 into the empty silhouette of IMAGE 1 as a clean front-facing portrait (head + neck).',
+      'RULES:',
+      '- PRESERVE THE IDENTITY EXACTLY: same face, eyes, nose, mouth, skin tone, hair and expression as IMAGE 2. Do NOT beautify, age, slim, change ethnicity or stylize. Must look like a PHOTO of the same person.',
+      '- Blend the hair and all edges SMOOTHLY into the teal background. NO rectangular box, NO hard seam, NO leftover original background around the head.',
+      '- Build a realistic NECK in the person skin tone that connects naturally into the green jersey collar, with no empty teal gap between chin and collar.',
       '- Keep EVERYTHING ELSE identical to IMAGE 1: the green "26", the COPA logo, the flag, "BRA", the jersey, the teal background and the two empty bottom bars.',
       '- Do NOT add any text anywhere.',
-      '',
       'Output: only the finished sticker image.',
     ].join('\n')
 
@@ -345,25 +324,22 @@ export async function POST(req: NextRequest) {
       if (imgData) {
         generated = await sharp(Buffer.from(imgData, 'base64')).resize(TW, TH, { fit: 'fill' }).toBuffer()
       } else {
-        console.error('[gerar] Gemini nao retornou imagem. Parts:', JSON.stringify(parts).slice(0, 400))
+        console.error('[gerar] Gemini nao retornou imagem')
       }
     } catch (e) {
       console.error('[gerar] modelo de imagem falhou, usando composicao local:', e)
     }
 
-    // Fallback deterministico (nunca devolve quadrado cinza nem erro)
     if (!generated) {
       generated = await composeHeadOnTemplate(baseResized, head.alpha, head.w, head.h, TW, TH)
     }
 
-    // -- 3) Restaurar as tarjas LIMPAS do template (anti-drift) --
     const bx = Math.round(BARS.x0 * TW), by = Math.round(BARS.y0 * TH)
     const bw = Math.round((BARS.x1 - BARS.x0) * TW), bh = Math.round((BARS.y1 - BARS.y0) * TH)
     const cleanBars = await sharp(baseResized)
       .extract({ left: bx, top: by, width: bw, height: Math.min(bh, TH - by) })
       .toBuffer()
 
-    // -- 4) Texto (Open Sans) sobre as tarjas --
     const textSvg = await buildTextSvg(TW, TH, nome.toUpperCase(), statsLine, clubeLine)
 
     const cleanImage = await sharp(generated)
@@ -374,11 +350,9 @@ export async function POST(req: NextRequest) {
       .jpeg({ quality: 92 })
       .toBuffer()
 
-    // -- Salvar versao limpa no Blob --
     const id = crypto.randomUUID()
     const blobResult = await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
 
-    // -- Watermark PREVIEW --
     const watermarkSvg = await buildWatermarkSvg(TW, TH)
     const previewImage = await sharp(cleanImage)
       .composite([{ input: watermarkSvg, top: 0, left: 0 }])
@@ -390,60 +364,6 @@ export async function POST(req: NextRequest) {
       id,
       blobUrl: blobResult.url,
     })
-
-  } catch (err) {
-    console.error('[gerar]', err)
-    return NextResponse.json(
-      { error: 'Erro ao gerar a figurinha. Tente novamente.' },
-      { status: 500 },
-    )
-  }
-}, 400))
-      }
-    } catch (e) {
-      console.error('[gerar] modelo de imagem falhou, usando composicao local:', e)
-    }
-
-    // Fallback deterministico (nunca devolve quadrado cinza nem erro)
-    if (!generated) {
-      generated = await composeHeadOnTemplate(baseResized, head.alpha, head.w, head.h, TW, TH)
-    }
-
-    // -- 3) Restaurar as tarjas LIMPAS do template (anti-drift) --
-    const bx = Math.round(BARS.x0 * TW), by = Math.round(BARS.y0 * TH)
-    const bw = Math.round((BARS.x1 - BARS.x0) * TW), bh = Math.round((BARS.y1 - BARS.y0) * TH)
-    const cleanBars = await sharp(baseResized)
-      .extract({ left: bx, top: by, width: bw, height: Math.min(bh, TH - by) })
-      .toBuffer()
-
-    // -- 4) Texto (Open Sans) sobre as tarjas --
-    const textSvg = await buildTextSvg(TW, TH, nome.toUpperCase(), statsLine, clubeLine)
-
-    const cleanImage = await sharp(generated)
-      .composite([
-        { input: cleanBars, top: by, left: bx },
-        { input: textSvg,   top: 0,  left: 0 },
-      ])
-      .jpeg({ quality: 92 })
-      .toBuffer()
-
-    // -- Salvar versao limpa no Blob --
-    const id = crypto.randomUUID()
-    const blobResult = await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
-
-    // -- Watermark PREVIEW --
-    const watermarkSvg = await buildWatermarkSvg(TW, TH)
-    const previewImage = await sharp(cleanImage)
-      .composite([{ input: watermarkSvg, top: 0, left: 0 }])
-      .jpeg({ quality: 88 })
-      .toBuffer()
-
-    return NextResponse.json({
-      image: 'data:image/jpeg;base64,' + previewImage.toString('base64'),
-      id,
-      blobUrl: blobResult.url,
-    })
-
   } catch (err) {
     console.error('[gerar]', err)
     return NextResponse.json(
