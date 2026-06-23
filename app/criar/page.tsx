@@ -640,9 +640,14 @@ export default function CriarPage() {
           </div>
 
           {/* Tentar novamente */}
-          <button onClick={handleRetry} style={{ width: '100%', background: 'transparent', color: '#6b7280', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 14, textDecoration: 'underline' }}>
-            Não gostou do resultado? Tente novamente
-          </button>
+          <div style={{ background: 'white', borderRadius: 16, padding: '16px 18px', marginBottom: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', textAlign: 'center', boxSizing: 'border-box' }}>
+            <p style={{ fontSize: 14, fontWeight: 800, color: '#374151', margin: '0 0 10px' }}>
+              😕 Não gostou do resultado?
+            </p>
+            <button onClick={handleRetry} style={{ width: '100%', background: '#f3f4f6', color: '#374151', border: '2px solid #d1d5db', borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: 'pointer', padding: '12px 0', letterSpacing: 0.3 }}>
+              🔄 Gerar novamente
+            </button>
+          </div>
 
           {/* Como funciona */}
           <HowItWorks />
