@@ -7,7 +7,7 @@ import fs from 'fs'
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! })
 
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash-preview-image-generation'
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image'
 const TARGET_W = 1200
 
 export const maxDuration = 60
