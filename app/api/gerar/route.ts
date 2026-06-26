@@ -140,8 +140,14 @@ export async function POST(req: NextRequest) {
         ].join(' ')
 
         console.log('[gerar] Replicate InstantID: gerando card')
+        // Modelos de comunidade exigem version hash — busca o mais recente dinamicamente
+        const modelInfo = await replicate.models.get('zsxkib', 'instant-id')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const output: any = await replicate.run('zsxkib/instant-id' as `${string}/${string}`, {
+        const versionId = (modelInfo as any).latest_version?.id as string | undefined
+        if (!versionId) throw new Error('InstantID: versão não encontrada')
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const output: any = await replicate.run(`zsxkib/instant-id:${versionId}` as `${string}/${string}:${string}`, {
           input: {
             image:                         tempPhotoUrl,
             prompt:                        instantPrompt,
