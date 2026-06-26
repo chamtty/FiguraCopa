@@ -11,8 +11,7 @@ const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image'
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
 
 // Modelo Replicate para face-swap (usado como fallback quando Gemini bloqueia)
-// Troque aqui se quiser usar outro modelo
-const REPLICATE_MODEL = 'cdingram/face-swap:d1d6ea8c8be89d664a07a457526f7128109dee7030fdac424788d762f71f0bde'
+const REPLICATE_MODEL = 'codeplugtech/face-swap:278a81e7ebb22db98bcba54de985d22cc1abeead2754eb1f2af717247be69b34'
 
 export const maxDuration = 60
 
@@ -129,11 +128,13 @@ export async function POST(req: NextRequest) {
         const templateB64 = 'data:image/jpeg;base64,' + templateBuf.toString('base64')
         const photoB64    = 'data:image/jpeg;base64,' + photoBuf.toString('base64')
 
-        // Replicate: local_source = rosto a inserir, local_target = imagem base
+        // codeplugtech/face-swap:
+        //   input_image = imagem base (template com Neymar)
+        //   swap_image  = foto com o rosto a inserir (lead)
         const output = await replicate.run(REPLICATE_MODEL as `${string}/${string}:${string}`, {
           input: {
-            local_source: photoB64,
-            local_target:  templateB64,
+            input_image: templateB64,
+            swap_image:  photoB64,
           },
         })
 
