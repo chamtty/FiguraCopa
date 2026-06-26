@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenAI } from '@google/genai'
-import { put } from '@vercel/blob'
+import { put, del } from '@vercel/blob'
 import Replicate from 'replicate'
 import sharp from 'sharp'
 import path from 'path'
@@ -124,22 +124,35 @@ export async function POST(req: NextRequest) {
         }, { status: 422 })
       }
 
+      let tempPhotoUrl: string | null = null
       try {
-        const templateB64 = 'data:image/jpeg;base64,' + templateBuf.toString('base64')
-        const photoB64    = 'data:image/jpeg;base64,' + photoBuf.toString('base64')
+        // Replicate exige URLs públicas — faz upload temporário da foto do lead
+        const tempBlob = await put('figurinhas/temp/' + crypto.randomUUID() + '.jpg', photoBuf, {
+          access: 'public',
+          addRandomSuffix: false,
+        })
+        tempPhotoUrl = tempBlob.url
+
+        // URL pública do template (servido pelo Next.js no Vercel)
+        const baseUrl = process.env.VERCEL_URL
+          ? 'https://' + process.env.VERCEL_URL
+          : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000')
+        const templatePublicUrl = baseUrl + '/template.jpg'
 
         // codeplugtech/face-swap:
         //   input_image = imagem base (template com Neymar)
         //   swap_image  = foto com o rosto a inserir (lead)
         const output = await replicate.run(REPLICATE_MODEL as `${string}/${string}:${string}`, {
           input: {
-            input_image: templateB64,
-            swap_image:  photoB64,
+            input_image: templatePublicUrl,
+            swap_image:  tempPhotoUrl,
           },
         })
 
-        const resultUrl = Array.isArray(output) ? output[0] : output as unknown as string
-        const resFetch  = await fetch(resultUrl)
+        if (!output) throw new Error('Replicate retornou null — rosto não detectado')
+
+        const resultUrl  = Array.isArray(output) ? output[0] : output as unknown as string
+        const resFetch   = await fetch(resultUrl)
         const swappedBuf = Buffer.from(await resFetch.arrayBuffer())
 
         // Aplica texto por cima do resultado do Replicate (ele troca só o rosto, não o texto)
@@ -150,8 +163,11 @@ export async function POST(req: NextRequest) {
           .jpeg({ quality: 92 })
           .toBuffer()
 
+        // Limpa o arquivo temporário (não precisa mais)
+        if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
         console.log('[gerar] Replicate OK')
       } catch (repErr) {
+        if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
         console.error('[gerar] Replicate falhou:', repErr)
         return NextResponse.json({
           error: 'Não foi possível processar esta foto. Tente com uma foto mais nítida, com rosto bem visível e sem outras pessoas no enquadramento.',
