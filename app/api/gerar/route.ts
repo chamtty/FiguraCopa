@@ -116,30 +116,38 @@ export async function POST(req: NextRequest) {
     }
 
     // ── TENTATIVA 2: Replicate (fallback quando Gemini bloqueia) ──
+    // Estratégia: o InsightFace falha ao detectar rosto no template completo (bordas,
+    // logos e barra de texto poluem o frame). Solução: extrair só o retrato (top 65%),
+    // fazer face-swap nesse crop, depois compositar de volta no template completo.
     if (!cleanImage && process.env.REPLICATE_API_TOKEN) {
       let tempPhotoUrl: string | null = null
       try {
-        // Replicate exige URLs públicas — faz upload de ambas as imagens no Blob
         const tempId = crypto.randomUUID()
-        const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
+
+        // 1. Crop da área do retrato (sem barra de texto nem bordas inferiores)
+        const cropH  = Math.round(TH * 0.65)
+        const portraitCrop = await sharp(templateBuf)
+          .extract({ left: 0, top: 0, width: TW, height: cropH })
+          .jpeg({ quality: 90 })
+          .toBuffer()
+
+        // 2. Upload: foto do lead (temporária) + crop do retrato (fixo)
+        const [tempPhotoBlob, cropBlobAsset] = await Promise.all([
           put('figurinhas/temp/' + tempId + '.jpg', photoBuf, {
             access: 'public', addRandomSuffix: false,
           }),
-          // Template: usa path fixo (sobrescreve sempre, URL nunca muda)
-          put('figurinhas/assets/template.jpg', templateBuf, {
+          put('figurinhas/assets/template-crop.jpg', portraitCrop, {
             access: 'public', addRandomSuffix: false,
           }),
         ])
         tempPhotoUrl = tempPhotoBlob.url
-        const templatePublicUrl = templateBlobAsset.url
 
-        // codeplugtech/face-swap:
-        //   input_image = imagem base (template com Neymar)
-        //   swap_image  = foto com o rosto a inserir (lead)
+        // 3. Face-swap: crop como target (rosto detectável), lead como source
+        console.log('[gerar] Replicate: tentando com crop do retrato')
         const output = await replicate.run(REPLICATE_MODEL as `${string}/${string}:${string}`, {
           input: {
-            input_image: templatePublicUrl,
-            swap_image:  tempPhotoUrl,
+            input_image: cropBlobAsset.url,  // crop do Neymar — rosto mais fácil de detectar
+            swap_image:  tempPhotoUrl,        // foto do lead
           },
         })
 
@@ -148,22 +156,30 @@ export async function POST(req: NextRequest) {
           const resFetch   = await fetch(resultUrl)
           const swappedBuf = Buffer.from(await resFetch.arrayBuffer())
 
+          // 4. Redimensiona resultado para as dimensões do crop original
+          const swappedResized = await sharp(swappedBuf)
+            .resize(TW, cropH, { fit: 'cover', position: 'centre' })
+            .toBuffer()
+
+          // 5. Compõe: swap cobre o retrato; template original aparece embaixo (barra + bordas)
           const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
-          cleanImage = await sharp(swappedBuf)
-            .resize(TW, TH, { fit: 'cover', position: 'centre' })
-            .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+          cleanImage = await sharp(templateBuf)
+            .composite([
+              { input: swappedResized, top: 0, left: 0 },
+              { input: Buffer.from(textSvg), top: 0, left: 0 },
+            ])
             .jpeg({ quality: 92 })
             .toBuffer()
 
           console.log('[gerar] Replicate OK')
         } else {
-          console.warn('[gerar] Replicate retornou null — usando Sharp compositing')
+          console.warn('[gerar] Replicate retornou null (rosto não detectado no crop)')
         }
 
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
       } catch (repErr) {
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.warn('[gerar] Replicate falhou:', repErr, '— usando Sharp compositing')
+        console.warn('[gerar] Replicate falhou:', repErr)
       }
     }
 
