@@ -309,7 +309,9 @@ export default function CriarPage() {
     ? `${(alturaNum / 100).toFixed(2).replace('.', ',')}m`
     : form.altura ? `${form.altura}m` : ''
   const baseCheckout = process.env.NEXT_PUBLIC_CHECKOUT_URL || '#'
-  const checkoutUrl  = stickerId ? `${baseCheckout}?custom=${stickerId}` : baseCheckout
+  const checkoutUrl  = stickerId
+    ? `${baseCheckout}?custom=${stickerId}${form.email ? '&email=' + encodeURIComponent(form.email) : ''}`
+    : baseCheckout
 
   const handleRetry = async () => {
     if (stickerId) {
@@ -617,7 +619,7 @@ export default function CriarPage() {
           <ViewerBadge />
 
           {/* Imagem com overlay anti-screenshot */}
-          <div style={{ position: 'relative', width: '100%', maxWidth: 290, margin: '0 auto 18px', boxSizing: 'border-box' }}
+          <div style={{ position: 'relative', width: '100%', maxWidth: 370, margin: '0 auto 18px', boxSizing: 'border-box' }}
             onContextMenu={e => e.preventDefault()}>
             <img src={figurinha} alt="Figurinha gerada" draggable={false}
               style={{ width: '100%', borderRadius: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.30)', display: 'block', userSelect: 'none' }} />
