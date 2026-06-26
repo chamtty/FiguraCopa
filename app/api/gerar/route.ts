@@ -115,63 +115,65 @@ export async function POST(req: NextRequest) {
       console.warn('[gerar] Gemini bloqueou (finishReason:', finishReason, ') — tentando Replicate')
     }
 
-    // ── TENTATIVA 2: Replicate FLUX Kontext multi-image ──
-    // Aceita duas imagens + prompt — mesma abordagem do Gemini, sem restrição IMAGE_SAFETY
+    // ── TENTATIVA 2: Replicate InstantID ──
+    // Preserva identidade facial da foto de referência (funciona para crianças).
+    // Gera nova imagem com o rosto do lead em estilo sticker card via prompt.
     if (!cleanImage && process.env.REPLICATE_API_TOKEN) {
       let tempPhotoUrl: string | null = null
       try {
         const tempId = crypto.randomUUID()
-        const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
-          put('figurinhas/temp/' + tempId + '.jpg', photoBuf, { access: 'public', addRandomSuffix: false }),
-          put('figurinhas/assets/template.jpg', templateBuf, { access: 'public', addRandomSuffix: false }),
-        ])
-        tempPhotoUrl = tempPhotoBlob.url
+        tempPhotoUrl = (await put('figurinhas/temp/' + tempId + '.jpg', photoBuf, {
+          access: 'public', addRandomSuffix: false,
+        })).url
 
-        const kontextPrompt = [
-          'IMAGE 1 is a FIFA World Cup 2026 collectible sticker card template.',
-          'IMAGE 2 is a photo of a soccer player.',
-          'Task: create a personalized sticker card using the exact layout and design from IMAGE 1,',
-          'but replace the player portrait with the person from IMAGE 2.',
-          'Keep every design element from IMAGE 1: yellow border, teal background,',
-          'green glowing 26, Copa do Mundo 2026 logo badge, BRA flag badge, dark navy info bar.',
-          'The person from IMAGE 2 should fill the portrait area in the same position and style as IMAGE 1.',
-          'Output must match the portrait proportions of IMAGE 1.',
+        const instantPrompt = [
+          'FIFA World Cup 2026 Brazil official collectible sticker card.',
+          'Portrait of a soccer player, upper body, facing slightly right, professional studio lighting.',
+          'Wearing yellow Brazil national soccer jersey with green collar and CBF badge.',
+          'Bright thick yellow golden border frame around the card.',
+          'Teal turquoise blue background with subtle gradient.',
+          'Large glowing green number 26 in the upper left area.',
+          'Copa do Mundo 2026 official FIFA logo badge in upper right.',
+          'Brazil BRA flag badge in the lower left of the portrait.',
+          'Dark navy blue statistics info bar at the very bottom of the card.',
+          'High quality, photorealistic, professional sports trading card.',
         ].join(' ')
 
-        console.log('[gerar] Replicate FLUX Kontext: gerando card')
+        console.log('[gerar] Replicate InstantID: gerando card')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const output: any = await replicate.run('flux-kontext-apps/multi-image-kontext-max' as `${string}/${string}`, {
+        const output: any = await replicate.run('zsxkib/instant-id' as `${string}/${string}`, {
           input: {
-            prompt:        kontextPrompt,
-            input_image_1: templateBlobAsset.url,
-            input_image_2: tempPhotoUrl,
-            aspect_ratio:  '2:3',
-            output_format: 'jpg',
+            image:                         tempPhotoUrl,
+            prompt:                        instantPrompt,
+            negative_prompt:               'blurry, distorted, ugly, watermark, text overlay, low quality, multiple people, cartoon, painting',
+            ip_adapter_scale:              0.8,
+            controlnet_conditioning_scale: 0.8,
+            num_inference_steps:           25,
+            guidance_scale:                5,
+            disable_safety_checker:        true,
+            width:                         816,
+            height:                        1088,
           },
         })
 
         if (output) {
-          // Output pode ser objeto com .url(), array, ou string
-          const resultUrl: string = typeof output?.url === 'function'
-            ? output.url()
-            : Array.isArray(output) ? output[0] : String(output)
-
-          const genBuf  = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
-          const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
+          const resultUrl: string = Array.isArray(output) ? output[0] : String(output)
+          const genBuf   = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
+          const textSvg  = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
           cleanImage = await sharp(genBuf)
             .resize(TW, TH, { fit: 'cover', position: 'centre' })
             .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
             .jpeg({ quality: 92 })
             .toBuffer()
-          console.log('[gerar] FLUX Kontext OK')
+          console.log('[gerar] InstantID OK')
         } else {
-          console.warn('[gerar] FLUX Kontext retornou null')
+          console.warn('[gerar] InstantID retornou null')
         }
 
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
       } catch (repErr) {
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.warn('[gerar] FLUX Kontext falhou:', repErr)
+        console.warn('[gerar] InstantID falhou:', repErr)
       }
     }
 
