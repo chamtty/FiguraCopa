@@ -310,7 +310,7 @@ export default function CriarPage() {
     : form.altura ? `${form.altura}m` : ''
   const baseCheckout = process.env.NEXT_PUBLIC_CHECKOUT_URL || '#'
   const checkoutUrl  = stickerId
-    ? `${baseCheckout}?custom=${stickerId}${form.email ? '&email=' + encodeURIComponent(form.email) : ''}`
+    ? `${baseCheckout}?custom=${stickerId}${form.email ? '&customer.email=' + encodeURIComponent(form.email) : ''}`
     : baseCheckout
 
   const handleRetry = async () => {
@@ -655,6 +655,11 @@ export default function CriarPage() {
             <div style={{ color: '#009B3A', fontWeight: 800, fontSize: 13, marginBottom: 6 }}>
               ✅ ACESSO LIBERADO NA HORA
             </div>
+            {form.email && (
+              <p style={{ fontSize: 12, color: '#374151', margin: '0 0 8px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '8px 10px' }}>
+                📧 Use o e-mail <strong>{form.email}</strong> no checkout para receber sua figurinha.
+              </p>
+            )}
             <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 12px' }}>
               Após o pagamento você será redirecionado automaticamente para baixar.
             </p>
