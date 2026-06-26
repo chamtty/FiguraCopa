@@ -126,18 +126,19 @@ export async function POST(req: NextRequest) {
 
       let tempPhotoUrl: string | null = null
       try {
-        // Replicate exige URLs públicas — faz upload temporário da foto do lead
-        const tempBlob = await put('figurinhas/temp/' + crypto.randomUUID() + '.jpg', photoBuf, {
-          access: 'public',
-          addRandomSuffix: false,
-        })
-        tempPhotoUrl = tempBlob.url
-
-        // URL pública do template (servido pelo Next.js no Vercel)
-        const baseUrl = process.env.VERCEL_URL
-          ? 'https://' + process.env.VERCEL_URL
-          : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000')
-        const templatePublicUrl = baseUrl + '/template.jpg'
+        // Replicate exige URLs públicas — faz upload de ambas as imagens no Blob
+        const tempId = crypto.randomUUID()
+        const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
+          put('figurinhas/temp/' + tempId + '.jpg', photoBuf, {
+            access: 'public', addRandomSuffix: false,
+          }),
+          // Template: usa path fixo (sobrescreve sempre, URL nunca muda)
+          put('figurinhas/assets/template.jpg', templateBuf, {
+            access: 'public', addRandomSuffix: false,
+          }),
+        ])
+        tempPhotoUrl = tempPhotoBlob.url
+        const templatePublicUrl = templateBlobAsset.url
 
         // codeplugtech/face-swap:
         //   input_image = imagem base (template com Neymar)
