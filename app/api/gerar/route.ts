@@ -116,14 +116,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── TENTATIVA 2: Replicate (fallback quando Gemini bloqueia) ──
-    if (!cleanImage) {
-      if (!process.env.REPLICATE_API_TOKEN) {
-        return NextResponse.json({
-          error: 'Não foi possível processar esta foto. Tente com uma foto mais nítida e rosto bem visível.',
-          blocked: true,
-        }, { status: 422 })
-      }
-
+    if (!cleanImage && process.env.REPLICATE_API_TOKEN) {
       let tempPhotoUrl: string | null = null
       try {
         // Replicate exige URLs públicas — faz upload de ambas as imagens no Blob
@@ -150,31 +143,51 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        if (!output) throw new Error('Replicate retornou null — rosto não detectado')
+        if (output) {
+          const resultUrl  = Array.isArray(output) ? output[0] : output as unknown as string
+          const resFetch   = await fetch(resultUrl)
+          const swappedBuf = Buffer.from(await resFetch.arrayBuffer())
 
-        const resultUrl  = Array.isArray(output) ? output[0] : output as unknown as string
-        const resFetch   = await fetch(resultUrl)
-        const swappedBuf = Buffer.from(await resFetch.arrayBuffer())
+          const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
+          cleanImage = await sharp(swappedBuf)
+            .resize(TW, TH, { fit: 'cover', position: 'centre' })
+            .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+            .jpeg({ quality: 92 })
+            .toBuffer()
 
-        // Aplica texto por cima do resultado do Replicate (ele troca só o rosto, não o texto)
-        const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
-        cleanImage = await sharp(swappedBuf)
-          .resize(TW, TH, { fit: 'cover', position: 'centre' })
-          .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
-          .jpeg({ quality: 92 })
-          .toBuffer()
+          console.log('[gerar] Replicate OK')
+        } else {
+          console.warn('[gerar] Replicate retornou null — usando Sharp compositing')
+        }
 
-        // Limpa o arquivo temporário (não precisa mais)
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.log('[gerar] Replicate OK')
       } catch (repErr) {
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.error('[gerar] Replicate falhou:', repErr)
-        return NextResponse.json({
-          error: 'Não foi possível processar esta foto. Tente com uma foto mais nítida, com rosto bem visível e sem outras pessoas no enquadramento.',
-          blocked: true,
-        }, { status: 422 })
+        console.warn('[gerar] Replicate falhou:', repErr, '— usando Sharp compositing')
       }
+    }
+
+    // ── TENTATIVA 3: Sharp compositing (fallback final, sem IA) ──
+    if (!cleanImage) {
+      console.log('[gerar] Sharp compositing fallback')
+      const portraitH = Math.round(TH * 0.72)
+
+      // Redimensiona foto do lead para cobrir a área do retrato
+      const userPortrait = await sharp(photoBuf)
+        .resize(TW, portraitH, { fit: 'cover', position: 'top' })
+        .jpeg({ quality: 92 })
+        .toBuffer()
+
+      // Compõe: template.jpg de base + foto do lead cobrindo área do jogador + texto
+      const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
+      cleanImage = await sharp(templateBuf)
+        .composite([
+          { input: userPortrait, top: 0, left: 0 },
+          { input: Buffer.from(textSvg), top: 0, left: 0 },
+        ])
+        .jpeg({ quality: 92 })
+        .toBuffer()
+
     }
 
     // ── Salva no Blob e gera preview ────────────────────────────
