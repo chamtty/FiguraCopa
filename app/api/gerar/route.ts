@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenAI } from '@google/genai'
 import { put, del } from '@vercel/blob'
 import Replicate from 'replicate'
 import sharp from 'sharp'
 import path from 'path'
 import fs from 'fs'
 
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! })
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3-pro-image'
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
-
-// Modelo Replicate para face-swap (usado como fallback quando Gemini bloqueia)
-const REPLICATE_MODEL = 'codeplugtech/face-swap:278a81e7ebb22db98bcba54de985d22cc1abeead2754eb1f2af717247be69b34'
 
 export const maxDuration = 120
 
@@ -47,29 +41,25 @@ export async function POST(req: NextRequest) {
     if (!fs.existsSync(templatePath)) {
       return NextResponse.json({ error: 'Template nao encontrado' }, { status: 500 })
     }
-    const templateBuf = fs.readFileSync(templatePath)
+    const templateBuf  = fs.readFileSync(templatePath)
     const templateMeta = await sharp(templateBuf).metadata()
     const TW = templateMeta.width!
     const TH = templateMeta.height!
 
     // Foto do lead
-    const photoBuf  = Buffer.from(await photoFile.arrayBuffer())
-    const photoMime = photoFile.type || 'image/jpeg'
-
-    // ── TENTATIVA 1: Gemini ──────────────────────────────────────
-    let cleanImage: Buffer | null = null
+    const photoBuf = Buffer.from(await photoFile.arrayBuffer())
 
     const promptLines = [
       'You are a sports trading card designer.',
       '',
       'IMAGE 1 = a FIFA World Cup 2026 collectible sticker card (the design template).',
-      'IMAGE 2 = a photo of the soccer player to feature on this card.',
+      'IMAGE 2 = a photo of the person to feature on this card.',
       '',
-      'Your task: create a personalized version of IMAGE 1 featuring the player from IMAGE 2.',
+      'Your task: create a personalized version of IMAGE 1 featuring the person from IMAGE 2.',
       '',
       'Instructions:',
       '1. Use IMAGE 1 as the complete card layout — keep every design element exactly as shown.',
-      '2. Feature the player from IMAGE 2 in the portrait area of the card, in the same position,',
+      '2. Feature the person from IMAGE 2 in the portrait area of the card, in the same position,',
       '   size and style as the original player portrait. Match the studio lighting of the card.',
       '3. Update the text in the bottom info bar — show ONLY the values below, no labels:',
       '   Line 1 (large bold white): ' + nomeUpper,
@@ -84,92 +74,61 @@ export async function POST(req: NextRequest) {
       '- Preserve all card elements: yellow border, teal background, green 26, COPA logo, flag badge, BRA text, jersey.',
     ]
 
-    const response = await ai.models.generateContent({
-      model: IMAGE_MODEL,
-      contents: [{
-        role: 'user',
-        parts: [
-          { text: promptLines.join('\n') },
-          { inlineData: { mimeType: 'image/jpeg', data: templateBuf.toString('base64') } },
-          { inlineData: { mimeType: photoMime,    data: photoBuf.toString('base64') } },
-        ],
-      }],
-      config: { responseModalities: ['IMAGE', 'TEXT'] },
-    })
+    // ── Replicate openai/gpt-image-2 ──────────────────────────────
+    // Modelo oficial da OpenAI no Replicate. moderation:'low' permite fotos de crianças/adolescentes.
+    let cleanImage: Buffer | null = null
+    let tempPhotoUrl: string | null = null
 
-    const candidate    = response.candidates?.[0]
-    const finishReason = (candidate?.finishReason as string | undefined) ?? ''
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parts        = candidate?.content?.parts ?? []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const imgData      = (parts.find((p: any) => p.inlineData?.data) as any)?.inlineData?.data as string | undefined
+    try {
+      const tempId = crypto.randomUUID()
+      const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
+        put('figurinhas/temp/' + tempId + '.jpg', photoBuf, { access: 'public', addRandomSuffix: false }),
+        put('figurinhas/assets/template.jpg', templateBuf, { access: 'public', addRandomSuffix: false }),
+      ])
+      tempPhotoUrl = tempPhotoBlob.url
 
-    if (imgData) {
-      // Gemini funcionou — redimensiona para as dimensões exatas do template
-      cleanImage = await sharp(Buffer.from(imgData, 'base64'))
-        .resize(TW, TH, { fit: 'cover', position: 'centre' })
-        .jpeg({ quality: 92 })
-        .toBuffer()
-      console.log('[gerar] Gemini OK')
-    } else {
-      console.warn('[gerar] Gemini bloqueou (finishReason:', finishReason, ') — tentando Replicate')
-    }
+      console.log('[gerar] gpt-image-2: iniciando geração')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const output: any = await replicate.run('openai/gpt-image-2' as `${string}/${string}`, {
+        input: {
+          prompt:           promptLines.join('\n'),
+          input_images:     [templateBlobAsset.url, tempPhotoUrl],
+          aspect_ratio:     '2:3',
+          quality:          'medium',  // high ultrapassa 120s de maxDuration
+          output_format:    'png',     // PNG intermediário evita dupla compressão JPEG
+          moderation:       'low',     // bypassa bloqueio de fotos de crianças/adolescentes
+          number_of_images: 1,
+        },
+      })
 
-    // ── TENTATIVA 2: Replicate openai/gpt-image-2 ──
-    // Aceita input_images (array com template + foto do lead) + prompt.
-    // moderation:'low' bypassa o bloqueio de fotos de crianças.
-    // Mesma abordagem do Gemini, custo ~$0,05/geração (quality:medium).
-    if (!cleanImage && process.env.REPLICATE_API_TOKEN) {
-      let tempPhotoUrl: string | null = null
-      try {
-        const tempId = crypto.randomUUID()
-        const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
-          put('figurinhas/temp/' + tempId + '.jpg', photoBuf, { access: 'public', addRandomSuffix: false }),
-          put('figurinhas/assets/template.jpg', templateBuf, { access: 'public', addRandomSuffix: false }),
-        ])
-        tempPhotoUrl = tempPhotoBlob.url
+      if (output) {
+        const resultUrl: string = Array.isArray(output)
+          ? output[0]
+          : typeof output?.url === 'function' ? output.url() : String(output)
 
-        console.log('[gerar] Replicate gpt-image-2: gerando card')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const output: any = await replicate.run('openai/gpt-image-2' as `${string}/${string}`, {
-          input: {
-            prompt:           promptLines.join('\n'), // mesmo prompt do Gemini
-            input_images:     [templateBlobAsset.url, tempPhotoUrl],
-            aspect_ratio:     '2:3',
-            quality:          'medium', // high ultrapassa 120s (Gemini ~44s + gpt-image-2 ~80s)
-            output_format:    'png',   // PNG intermediário evita dupla compressão JPEG na borda
-            moderation:       'low',   // bypassa bloqueio de fotos de crianças
-            number_of_images: 1,
-          },
-        })
+        const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
 
-        if (output) {
-          // Output pode ser array de URLs ou objeto com .url()
-          const resultUrl: string = Array.isArray(output)
-            ? output[0]
-            : typeof output?.url === 'function' ? output.url() : String(output)
-
-          const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
-          // Não aplicamos o SVG aqui: o gpt-image-2 já gera a barra de info teal do template
-          // com o texto correto (nome/data/clube) via prompt. Adicionar o SVG navy criaria
-          // uma barra duplicada sobre o design original do template.
-          cleanImage = await sharp(genBuf)
-            .resize(TW, TH, { fit: 'cover', position: 'centre' })
-            .jpeg({ quality: 92 })
-            .toBuffer()
-          console.log('[gerar] gpt-image-2 OK')
-        } else {
-          console.warn('[gerar] gpt-image-2 retornou null')
-        }
-
-        if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-      } catch (repErr) {
-        if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.warn('[gerar] gpt-image-2 falhou:', repErr)
+        // gpt-image-2 gera em 2:3; nosso template é ~3:4 (TW×TH).
+        // fit:'contain' escala preservando proporção e preenche laterais com amarelo Copa
+        // (r:252 g:201 b:0), que se mescla com a borda amarela do card. Sem corte.
+        cleanImage = await sharp(genBuf)
+          .resize(TW, TH, {
+            fit: 'contain',
+            background: { r: 252, g: 201, b: 0, alpha: 1 },
+          })
+          .jpeg({ quality: 92 })
+          .toBuffer()
+        console.log('[gerar] gpt-image-2 OK')
+      } else {
+        console.warn('[gerar] gpt-image-2 retornou null')
       }
+
+      if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
+    } catch (repErr) {
+      if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
+      console.warn('[gerar] gpt-image-2 falhou:', repErr)
     }
 
-    // ── Ambos falharam: pede ao lead para enviar outra foto ──
     if (!cleanImage) {
       return NextResponse.json({
         error: 'Não conseguimos processar esta foto. Envie uma foto com o rosto bem visível, em boa iluminação e sem outras pessoas no enquadramento.',
@@ -177,13 +136,18 @@ export async function POST(req: NextRequest) {
       }, { status: 422 })
     }
 
-    // ── Salva no Blob e gera preview ────────────────────────────
+    // ── Salva no Blob ────────────────────────────────────────────
     const id   = crypto.randomUUID()
     const blob = await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
 
-    // Metadata por ID (webhook)
+    // Metadata por ID (webhook + cron de limpeza)
     await put('figurinhas/meta/' + id + '.json',
-      Buffer.from(JSON.stringify({ email, nome: nomeUpper, blobUrl: blob.url })),
+      Buffer.from(JSON.stringify({
+        email,
+        nome: nomeUpper,
+        blobUrl: blob.url,
+        createdAt: Date.now(), // usado pelo /api/cleanup para expirar após 24h
+      })),
       { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
 
     // Index por e-mail (área de membros)
@@ -210,39 +174,6 @@ export async function POST(req: NextRequest) {
     console.error('[gerar]', err)
     return NextResponse.json({ error: 'Erro ao gerar a figurinha. Tente novamente.' }, { status: 500 })
   }
-}
-
-// SVG que cobre o texto original do template e insere os dados do lead.
-// topPct: posição vertical da faixa (0.705 para Gemini, ~0.82 para gpt-image-2).
-// No Gemini o template já define o layout exato; no gpt-image-2, após crop 2:3→3:4,
-// a barra de info gerada pela IA cai mais abaixo (~82%), então ajustamos para evitar
-// a faixa dupla no meio da figurinha.
-function buildTextSvg(tw: number, th: number, nome: string, info: string, clube: string, topPct = 0.705): string {
-  const faixaTop  = Math.floor(th * topPct)
-  const available = th - faixaTop
-  // Mantém proporções originais para o caminho Gemini; escala proporcionalmente para outros.
-  const faixaH    = topPct === 0.705 ? Math.floor(th * 0.260)              : Math.floor(available * 0.93)
-  const nomeY     = topPct === 0.705 ? Math.floor(th * 0.775)              : Math.floor(faixaTop + available * 0.25)
-  const infoY     = topPct === 0.705 ? Math.floor(th * 0.845)              : Math.floor(faixaTop + available * 0.53)
-  const clubeY    = topPct === 0.705 ? Math.floor(th * 0.905)              : Math.floor(faixaTop + available * 0.78)
-  const faixaLeft = Math.floor(tw * 0.02)
-  const faixaW    = Math.floor(tw * 0.96)
-  const nomeSz    = Math.round(tw * 0.062)
-  const infoSz    = Math.round(tw * 0.038)
-  const cx        = Math.round(tw / 2)
-
-  return [
-    '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">',
-    '  <rect x="' + faixaLeft + '" y="' + faixaTop + '" width="' + faixaW + '" height="' + faixaH + '" fill="rgb(11,18,78)" rx="32"/>',
-    '  <text x="' + cx + '" y="' + nomeY + '" font-family="Arial Black,Arial,sans-serif" font-size="' + nomeSz + '" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">' + escapeXml(nome) + '</text>',
-    '  <text x="' + cx + '" y="' + infoY + '" font-family="Arial,sans-serif" font-size="' + infoSz + '" fill="white" text-anchor="middle" dominant-baseline="middle">' + escapeXml(info) + '</text>',
-    '  <text x="' + cx + '" y="' + clubeY + '" font-family="Arial,sans-serif" font-size="' + infoSz + '" fill="white" text-anchor="middle" dominant-baseline="middle">' + escapeXml(clube) + '</text>',
-    '</svg>',
-  ].join('\n')
-}
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 }
 
 function buildWatermarkSvg(tw: number, th: number): string {
