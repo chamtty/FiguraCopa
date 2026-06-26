@@ -115,71 +115,56 @@ export async function POST(req: NextRequest) {
       console.warn('[gerar] Gemini bloqueou (finishReason:', finishReason, ') — tentando Replicate')
     }
 
-    // ── TENTATIVA 2: Replicate InstantID ──
-    // Preserva identidade facial da foto de referência (funciona para crianças).
-    // Gera nova imagem com o rosto do lead em estilo sticker card via prompt.
+    // ── TENTATIVA 2: Replicate openai/gpt-image-2 ──
+    // Aceita input_images (array com template + foto do lead) + prompt.
+    // moderation:'low' bypassa o bloqueio de fotos de crianças.
+    // Mesma abordagem do Gemini, custo ~$0,05/geração (quality:medium).
     if (!cleanImage && process.env.REPLICATE_API_TOKEN) {
       let tempPhotoUrl: string | null = null
       try {
         const tempId = crypto.randomUUID()
-        tempPhotoUrl = (await put('figurinhas/temp/' + tempId + '.jpg', photoBuf, {
-          access: 'public', addRandomSuffix: false,
-        })).url
+        const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
+          put('figurinhas/temp/' + tempId + '.jpg', photoBuf, { access: 'public', addRandomSuffix: false }),
+          put('figurinhas/assets/template.jpg', templateBuf, { access: 'public', addRandomSuffix: false }),
+        ])
+        tempPhotoUrl = tempPhotoBlob.url
 
-        const instantPrompt = [
-          'FIFA World Cup 2026 Brazil official collectible sticker card.',
-          'Portrait of a soccer player, upper body, facing slightly right, professional studio lighting.',
-          'Wearing yellow Brazil national soccer jersey with green collar and CBF badge.',
-          'Bright thick yellow golden border frame around the card.',
-          'Teal turquoise blue background with subtle gradient.',
-          'Large glowing green number 26 in the upper left area.',
-          'Copa do Mundo 2026 official FIFA logo badge in upper right.',
-          'Brazil BRA flag badge in the lower left of the portrait.',
-          'Dark navy blue statistics info bar at the very bottom of the card.',
-          'High quality, photorealistic, professional sports trading card.',
-        ].join(' ')
-
-        console.log('[gerar] Replicate InstantID: gerando card')
-        // Modelos de comunidade exigem version hash — busca o mais recente dinamicamente
-        const modelInfo = await replicate.models.get('zsxkib', 'instant-id')
+        console.log('[gerar] Replicate gpt-image-2: gerando card')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const versionId = (modelInfo as any).latest_version?.id as string | undefined
-        if (!versionId) throw new Error('InstantID: versão não encontrada')
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const output: any = await replicate.run(`zsxkib/instant-id:${versionId}` as `${string}/${string}:${string}`, {
+        const output: any = await replicate.run('openai/gpt-image-2' as `${string}/${string}`, {
           input: {
-            image:                         tempPhotoUrl,
-            prompt:                        instantPrompt,
-            negative_prompt:               'blurry, distorted, ugly, watermark, text overlay, low quality, multiple people, cartoon, painting',
-            ip_adapter_scale:              0.8,
-            controlnet_conditioning_scale: 0.8,
-            num_inference_steps:           25,
-            guidance_scale:                5,
-            disable_safety_checker:        true,
-            width:                         816,
-            height:                        1088,
+            prompt:           promptLines.join('\n'), // mesmo prompt do Gemini
+            input_images:     [templateBlobAsset.url, tempPhotoUrl],
+            aspect_ratio:     '2:3',
+            quality:          'medium',
+            output_format:    'jpeg',
+            moderation:       'low',   // bypassa bloqueio de fotos de crianças
+            number_of_images: 1,
           },
         })
 
         if (output) {
-          const resultUrl: string = Array.isArray(output) ? output[0] : String(output)
-          const genBuf   = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
-          const textSvg  = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
+          // Output pode ser array de URLs ou objeto com .url()
+          const resultUrl: string = Array.isArray(output)
+            ? output[0]
+            : typeof output?.url === 'function' ? output.url() : String(output)
+
+          const genBuf  = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
+          const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
           cleanImage = await sharp(genBuf)
             .resize(TW, TH, { fit: 'cover', position: 'centre' })
             .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
             .jpeg({ quality: 92 })
             .toBuffer()
-          console.log('[gerar] InstantID OK')
+          console.log('[gerar] gpt-image-2 OK')
         } else {
-          console.warn('[gerar] InstantID retornou null')
+          console.warn('[gerar] gpt-image-2 retornou null')
         }
 
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
       } catch (repErr) {
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.warn('[gerar] InstantID falhou:', repErr)
+        console.warn('[gerar] gpt-image-2 falhou:', repErr)
       }
     }
 
