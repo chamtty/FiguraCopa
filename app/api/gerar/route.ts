@@ -13,7 +13,7 @@ const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
 // Modelo Replicate para face-swap (usado como fallback quando Gemini bloqueia)
 const REPLICATE_MODEL = 'codeplugtech/face-swap:278a81e7ebb22db98bcba54de985d22cc1abeead2754eb1f2af717247be69b34'
 
-export const maxDuration = 120
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
@@ -115,61 +115,63 @@ export async function POST(req: NextRequest) {
       console.warn('[gerar] Gemini bloqueou (finishReason:', finishReason, ') — tentando Replicate')
     }
 
-    // ── TENTATIVA 2: Replicate fofr/face-swap-with-ideogram ──
-    // Gera um card de figurinha via Ideogram com o rosto do lead — sem face-swap em template,
-    // portanto sem dependência de InsightFace detectar rosto em imagem estilizada.
+    // ── TENTATIVA 2: Replicate FLUX Kontext multi-image ──
+    // Aceita duas imagens + prompt — mesma abordagem do Gemini, sem restrição IMAGE_SAFETY
     if (!cleanImage && process.env.REPLICATE_API_TOKEN) {
       let tempPhotoUrl: string | null = null
       try {
         const tempId = crypto.randomUUID()
-        const tempPhotoBlob = await put('figurinhas/temp/' + tempId + '.jpg', photoBuf, {
-          access: 'public', addRandomSuffix: false,
-        })
+        const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
+          put('figurinhas/temp/' + tempId + '.jpg', photoBuf, { access: 'public', addRandomSuffix: false }),
+          put('figurinhas/assets/template.jpg', templateBuf, { access: 'public', addRandomSuffix: false }),
+        ])
         tempPhotoUrl = tempPhotoBlob.url
 
-        // Crop do retrato (top 65%) para facilitar detecção do rosto no target
-        const cropH = Math.round(TH * 0.65)
-        const portraitCrop = await sharp(templateBuf)
-          .extract({ left: 0, top: 0, width: TW, height: cropH })
-          .jpeg({ quality: 90 })
-          .toBuffer()
-        const cropBlobAsset = await put('figurinhas/assets/template-crop.jpg', portraitCrop, {
-          access: 'public', addRandomSuffix: false,
-        })
+        const kontextPrompt = [
+          'IMAGE 1 is a FIFA World Cup 2026 collectible sticker card template.',
+          'IMAGE 2 is a photo of a soccer player.',
+          'Task: create a personalized sticker card using the exact layout and design from IMAGE 1,',
+          'but replace the player portrait with the person from IMAGE 2.',
+          'Keep every design element from IMAGE 1: yellow border, teal background,',
+          'green glowing 26, Copa do Mundo 2026 logo badge, BRA flag badge, dark navy info bar.',
+          'The person from IMAGE 2 should fill the portrait area in the same position and style as IMAGE 1.',
+          'Output must match the portrait proportions of IMAGE 1.',
+        ].join(' ')
 
-        console.log('[gerar] Replicate Ideogram: gerando card')
+        console.log('[gerar] Replicate FLUX Kontext: gerando card')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const output: any = await replicate.run('fofr/face-swap-with-ideogram' as `${string}/${string}`, {
+        const output: any = await replicate.run('flux-kontext-apps/multi-image-kontext-max' as `${string}/${string}`, {
           input: {
-            character_image: tempPhotoUrl,    // rosto do lead
-            target_image:    cropBlobAsset.url, // crop do retrato (sem barra/bordas)
+            prompt:        kontextPrompt,
+            input_image_1: templateBlobAsset.url,
+            input_image_2: tempPhotoUrl,
+            aspect_ratio:  '2:3',
+            output_format: 'jpg',
           },
         })
 
         if (output) {
-          const resultUrl    = Array.isArray(output) ? output[0] : output as string
-          const swappedBuf   = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
-          // Redimensiona o resultado para cobrir o crop e composita no template completo
-          const swappedResized = await sharp(swappedBuf)
-            .resize(TW, cropH, { fit: 'cover', position: 'centre' })
-            .toBuffer()
+          // Output pode ser objeto com .url(), array, ou string
+          const resultUrl: string = typeof output?.url === 'function'
+            ? output.url()
+            : Array.isArray(output) ? output[0] : String(output)
+
+          const genBuf  = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
           const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
-          cleanImage = await sharp(templateBuf)
-            .composite([
-              { input: swappedResized, top: 0, left: 0 },
-              { input: Buffer.from(textSvg), top: 0, left: 0 },
-            ])
+          cleanImage = await sharp(genBuf)
+            .resize(TW, TH, { fit: 'cover', position: 'centre' })
+            .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
             .jpeg({ quality: 92 })
             .toBuffer()
-          console.log('[gerar] Replicate Ideogram OK')
+          console.log('[gerar] FLUX Kontext OK')
         } else {
-          console.warn('[gerar] Replicate Ideogram retornou null')
+          console.warn('[gerar] FLUX Kontext retornou null')
         }
 
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
       } catch (repErr) {
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.warn('[gerar] Replicate Ideogram falhou:', repErr)
+        console.warn('[gerar] FLUX Kontext falhou:', repErr)
       }
     }
 
