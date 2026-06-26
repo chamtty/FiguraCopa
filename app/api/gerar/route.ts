@@ -127,38 +127,38 @@ export async function POST(req: NextRequest) {
         })
         tempPhotoUrl = tempPhotoBlob.url
 
-        const cardPrompt = [
-          'FIFA World Cup 2026 Brazil official collectible sticker card.',
-          'Bright thick yellow golden border frame.',
-          'Teal turquoise background.',
-          'Large glowing green number 26 upper area.',
-          'Copa do Mundo 2026 FIFA official badge.',
-          'Soccer player portrait in yellow Brazil jersey.',
-          'Professional studio sports card lighting.',
-          'Dark navy blue info bar at bottom.',
-          'High quality photorealistic trading card.',
-        ].join(' ')
+        // Crop do retrato (top 65%) para facilitar detecção do rosto no target
+        const cropH = Math.round(TH * 0.65)
+        const portraitCrop = await sharp(templateBuf)
+          .extract({ left: 0, top: 0, width: TW, height: cropH })
+          .jpeg({ quality: 90 })
+          .toBuffer()
+        const cropBlobAsset = await put('figurinhas/assets/template-crop.jpg', portraitCrop, {
+          access: 'public', addRandomSuffix: false,
+        })
 
         console.log('[gerar] Replicate Ideogram: gerando card')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const output: any = await replicate.run('fofr/face-swap-with-ideogram' as `${string}/${string}`, {
           input: {
-            face_image:      tempPhotoUrl,
-            prompt:          cardPrompt,
-            negative_prompt: 'blurry, distorted, watermark, text, low quality, cartoon',
-            style_type:      'Realistic',
-            width:           816,
-            height:          1088,
+            character_image: tempPhotoUrl,    // rosto do lead
+            target_image:    cropBlobAsset.url, // crop do retrato (sem barra/bordas)
           },
         })
 
         if (output) {
-          const resultUrl = Array.isArray(output) ? output[0] : output as string
-          const genBuf    = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
-          const textSvg   = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
-          cleanImage = await sharp(genBuf)
-            .resize(TW, TH, { fit: 'cover', position: 'centre' })
-            .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+          const resultUrl    = Array.isArray(output) ? output[0] : output as string
+          const swappedBuf   = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
+          // Redimensiona o resultado para cobrir o crop e composita no template completo
+          const swappedResized = await sharp(swappedBuf)
+            .resize(TW, cropH, { fit: 'cover', position: 'centre' })
+            .toBuffer()
+          const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
+          cleanImage = await sharp(templateBuf)
+            .composite([
+              { input: swappedResized, top: 0, left: 0 },
+              { input: Buffer.from(textSvg), top: 0, left: 0 },
+            ])
             .jpeg({ quality: 92 })
             .toBuffer()
           console.log('[gerar] Replicate Ideogram OK')
