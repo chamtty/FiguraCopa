@@ -136,8 +136,8 @@ export async function POST(req: NextRequest) {
             prompt:           promptLines.join('\n'), // mesmo prompt do Gemini
             input_images:     [templateBlobAsset.url, tempPhotoUrl],
             aspect_ratio:     '2:3',
-            quality:          'high',  // evita artifacts de upscale na borda (~$0,21/geração)
-            output_format:    'jpeg',
+            quality:          'medium', // high ultrapassa 120s (Gemini ~44s + gpt-image-2 ~80s)
+            output_format:    'png',   // PNG intermediário evita dupla compressão JPEG na borda
             moderation:       'low',   // bypassa bloqueio de fotos de crianças
             number_of_images: 1,
           },
