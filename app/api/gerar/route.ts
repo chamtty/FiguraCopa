@@ -129,4 +129,138 @@ export async function POST(req: NextRequest) {
         ])
         tempPhotoUrl = tempPhotoBlob.url
 
-        console.log('[gerar] Repli
+        console.log('[gerar] Replicate gpt-image-2: gerando card')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const output: any = await replicate.run('openai/gpt-image-2' as `${string}/${string}`, {
+          input: {
+            prompt:           promptLines.join('\n'), // mesmo prompt do Gemini
+            input_images:     [templateBlobAsset.url, tempPhotoUrl],
+            aspect_ratio:     '2:3',
+            quality:          'high',  // evita artifacts de upscale na borda (~$0,21/geração)
+            output_format:    'jpeg',
+            moderation:       'low',   // bypassa bloqueio de fotos de crianças
+            number_of_images: 1,
+          },
+        })
+
+        if (output) {
+          // Output pode ser array de URLs ou objeto com .url()
+          const resultUrl: string = Array.isArray(output)
+            ? output[0]
+            : typeof output?.url === 'function' ? output.url() : String(output)
+
+          const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
+          // gpt-image-2 em 2:3 é mais estreito que nosso template 3:4 (3576×4800).
+          // Com fit:'cover', sharp escala a largura para 3576 e corta ~282px do topo/base.
+          // Isso desloca a barra de info gerada pela IA para ~82% da altura final.
+          // Usamos topPct=0.82 para que o SVG cubra exatamente essa região, sem faixa dupla.
+          const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper, 0.82)
+          cleanImage = await sharp(genBuf)
+            .resize(TW, TH, { fit: 'cover', position: 'centre' })
+            .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
+            .jpeg({ quality: 92 })
+            .toBuffer()
+          console.log('[gerar] gpt-image-2 OK')
+        } else {
+          console.warn('[gerar] gpt-image-2 retornou null')
+        }
+
+        if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
+      } catch (repErr) {
+        if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
+        console.warn('[gerar] gpt-image-2 falhou:', repErr)
+      }
+    }
+
+    // ── Ambos falharam: pede ao lead para enviar outra foto ──
+    if (!cleanImage) {
+      return NextResponse.json({
+        error: 'Não conseguimos processar esta foto. Envie uma foto com o rosto bem visível, em boa iluminação e sem outras pessoas no enquadramento.',
+        blocked: true,
+      }, { status: 422 })
+    }
+
+    // ── Salva no Blob e gera preview ────────────────────────────
+    const id   = crypto.randomUUID()
+    const blob = await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
+
+    // Metadata por ID (webhook)
+    await put('figurinhas/meta/' + id + '.json',
+      Buffer.from(JSON.stringify({ email, nome: nomeUpper, blobUrl: blob.url })),
+      { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+
+    // Index por e-mail (área de membros)
+    if (email) {
+      const emailKey = email.toLowerCase().replace('@', '--at--')
+      await put('figurinhas/idx/' + emailKey + '/' + id + '.json',
+        Buffer.from(JSON.stringify({ nome: nomeUpper, blobUrl: blob.url, paid: false })),
+        { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+    }
+
+    // Preview com watermark
+    const wm = buildWatermarkSvg(TW, TH)
+    const previewImage = await sharp(cleanImage)
+      .composite([{ input: Buffer.from(wm), top: 0, left: 0 }])
+      .jpeg({ quality: 88 })
+      .toBuffer()
+
+    return NextResponse.json({
+      image: 'data:image/jpeg;base64,' + previewImage.toString('base64'),
+      id,
+    })
+
+  } catch (err) {
+    console.error('[gerar]', err)
+    return NextResponse.json({ error: 'Erro ao gerar a figurinha. Tente novamente.' }, { status: 500 })
+  }
+}
+
+// SVG que cobre o texto original do template e insere os dados do lead.
+// topPct: posição vertical da faixa (0.705 para Gemini, ~0.82 para gpt-image-2).
+// No Gemini o template já define o layout exato; no gpt-image-2, após crop 2:3→3:4,
+// a barra de info gerada pela IA cai mais abaixo (~82%), então ajustamos para evitar
+// a faixa dupla no meio da figurinha.
+function buildTextSvg(tw: number, th: number, nome: string, info: string, clube: string, topPct = 0.705): string {
+  const faixaTop  = Math.floor(th * topPct)
+  const available = th - faixaTop
+  // Mantém proporções originais para o caminho Gemini; escala proporcionalmente para outros.
+  const faixaH    = topPct === 0.705 ? Math.floor(th * 0.260)              : Math.floor(available * 0.93)
+  const nomeY     = topPct === 0.705 ? Math.floor(th * 0.775)              : Math.floor(faixaTop + available * 0.25)
+  const infoY     = topPct === 0.705 ? Math.floor(th * 0.845)              : Math.floor(faixaTop + available * 0.53)
+  const clubeY    = topPct === 0.705 ? Math.floor(th * 0.905)              : Math.floor(faixaTop + available * 0.78)
+  const faixaLeft = Math.floor(tw * 0.02)
+  const faixaW    = Math.floor(tw * 0.96)
+  const nomeSz    = Math.round(tw * 0.062)
+  const infoSz    = Math.round(tw * 0.038)
+  const cx        = Math.round(tw / 2)
+
+  return [
+    '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">',
+    '  <rect x="' + faixaLeft + '" y="' + faixaTop + '" width="' + faixaW + '" height="' + faixaH + '" fill="rgb(11,18,78)" rx="32"/>',
+    '  <text x="' + cx + '" y="' + nomeY + '" font-family="Arial Black,Arial,sans-serif" font-size="' + nomeSz + '" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">' + escapeXml(nome) + '</text>',
+    '  <text x="' + cx + '" y="' + infoY + '" font-family="Arial,sans-serif" font-size="' + infoSz + '" fill="white" text-anchor="middle" dominant-baseline="middle">' + escapeXml(info) + '</text>',
+    '  <text x="' + cx + '" y="' + clubeY + '" font-family="Arial,sans-serif" font-size="' + infoSz + '" fill="white" text-anchor="middle" dominant-baseline="middle">' + escapeXml(clube) + '</text>',
+    '</svg>',
+  ].join('\n')
+}
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+function buildWatermarkSvg(tw: number, th: number): string {
+  const size = Math.round(tw * 0.10)
+  const sm   = Math.round(tw * 0.032)
+  const bp   = [0.04, 0.20, 0.37, 0.54, 0.70, 0.87]
+  const sp   = [0.12, 0.29, 0.46, 0.62, 0.79]
+  let svg = '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">'
+  for (const f of bp) {
+    const y = Math.round(th * f), cx = Math.round(tw / 2)
+    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.21" font-weight="bold" text-anchor="middle" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW - PREVIEW</text>'
+  }
+  for (const f of sp) {
+    const y = Math.round(th * f), cx = Math.round(tw / 2)
+    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + sm + '" fill="white" fill-opacity="0.24" text-anchor="middle" transform="rotate(-38,' + cx + ',' + y + ')">figurinha-copa2026.com</text>'
+  }
+  return svg + '</svg>'
+}
