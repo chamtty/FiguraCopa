@@ -150,14 +150,11 @@ export async function POST(req: NextRequest) {
             : typeof output?.url === 'function' ? output.url() : String(output)
 
           const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
-          // gpt-image-2 em 2:3 é mais estreito que nosso template 3:4 (3576×4800).
-          // Com fit:'cover', sharp escala a largura para 3576 e corta ~282px do topo/base.
-          // Isso desloca a barra de info gerada pela IA para ~82% da altura final.
-          // Usamos topPct=0.82 para que o SVG cubra exatamente essa região, sem faixa dupla.
-          const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper, 0.82)
+          // Não aplicamos o SVG aqui: o gpt-image-2 já gera a barra de info teal do template
+          // com o texto correto (nome/data/clube) via prompt. Adicionar o SVG navy criaria
+          // uma barra duplicada sobre o design original do template.
           cleanImage = await sharp(genBuf)
             .resize(TW, TH, { fit: 'cover', position: 'centre' })
-            .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
             .jpeg({ quality: 92 })
             .toBuffer()
           console.log('[gerar] gpt-image-2 OK')
