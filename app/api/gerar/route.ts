@@ -13,7 +13,7 @@ const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
 // Modelo Replicate para face-swap (usado como fallback quando Gemini bloqueia)
 const REPLICATE_MODEL = 'codeplugtech/face-swap:278a81e7ebb22db98bcba54de985d22cc1abeead2754eb1f2af717247be69b34'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
   try {
