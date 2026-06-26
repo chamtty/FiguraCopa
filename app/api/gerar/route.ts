@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        const resultUrl = Array.isArray(output) ? output[0] : output as string
+        const resultUrl = Array.isArray(output) ? output[0] : output as unknown as string
         const resFetch  = await fetch(resultUrl)
         const swappedBuf = Buffer.from(await resFetch.arrayBuffer())
 
