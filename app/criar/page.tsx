@@ -276,6 +276,12 @@ export default function CriarPage() {
 
       const res = await fetch('/api/gerar', { method: 'POST', body: fd })
       const data = await res.json()
+      if (res.status === 422 && data.blocked) {
+        // Foto bloqueada pelo filtro de segurança da IA
+        setError(data.error)
+        setStep('upload') // volta para a foto, não para dados
+        return
+      }
       if (!res.ok || data.error) throw new Error(data.error || 'Erro desconhecido')
 
       setFigurinha(data.image)
@@ -405,6 +411,14 @@ export default function CriarPage() {
               <p style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', marginBottom: 16 }}>
                 Tire uma foto agora ou escolha da galeria
               </p>
+
+              {/* Erro de foto bloqueada */}
+              {error && (
+                <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', margin: '0 0 6px' }}>⚠️ Não conseguimos processar essa foto</p>
+                  <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6 }}>{error}</p>
+                </div>
+              )}
 
               {/* Preview da foto */}
               {photoPreview && (

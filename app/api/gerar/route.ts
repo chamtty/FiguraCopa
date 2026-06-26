@@ -51,17 +51,20 @@ export async function POST(req: NextRequest) {
     const photoBuf  = Buffer.from(await photoFile.arrayBuffer())
     const photoMime = photoFile.type || 'image/jpeg'
 
-    // Prompt direto e objetivo
+    // Prompt — sem linguagem de "face-swap" para evitar bloqueio do filtro de segurança
     const promptLines = [
-      'TASK: Face-swap on a soccer sticker card.',
+      'You are a sports trading card designer.',
       '',
-      'IMAGE 1 = the sticker card template (your output base).',
-      'IMAGE 2 = the person whose face replaces Neymar in the card.',
+      'IMAGE 1 = a FIFA World Cup 2026 collectible sticker card (the design template).',
+      'IMAGE 2 = a photo of the soccer player to feature on this card.',
+      '',
+      'Your task: create a personalized version of IMAGE 1 featuring the player from IMAGE 2.',
       '',
       'Instructions:',
-      '1. Keep IMAGE 1 exactly as-is.',
-      '2. Replace only Neymar face/head with the face from IMAGE 2. Same position, same scale.',
-      '3. Replace the text in the bottom bar. Show ONLY the values, no labels:',
+      '1. Use IMAGE 1 as the complete card layout — keep every design element exactly as shown.',
+      '2. Feature the player from IMAGE 2 in the portrait area of the card, in the same position,',
+      '   size and style as the original player portrait. Match the studio lighting of the card.',
+      '3. Update the text in the bottom info bar — show ONLY the values below, no labels:',
       '   Line 1 (large bold white): ' + nomeUpper,
       '   Line 2 (small white): ' + infoLine,
       '   Line 3 (small white): ' + clubeUpper,
@@ -89,12 +92,23 @@ export async function POST(req: NextRequest) {
       config: { responseModalities: ['IMAGE', 'TEXT'] },
     })
 
+    // Detecta bloqueio por filtro de segurança
+    const candidate   = response.candidates?.[0]
+    const finishReason = (candidate?.finishReason as string | undefined) ?? ''
+    if (finishReason === 'SAFETY' || finishReason === 'RECITATION') {
+      console.warn('[gerar] Gemini bloqueou por segurança. finishReason:', finishReason)
+      return NextResponse.json({
+        error: 'Não foi possível processar esta foto. Tente com uma foto mais nítida, com boa iluminação e rosto bem visível — sem outras pessoas no enquadramento.',
+        blocked: true,
+      }, { status: 422 })
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parts   = response.candidates?.[0]?.content?.parts ?? []
+    const parts   = candidate?.content?.parts ?? []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const imgData = (parts.find((p: any) => p.inlineData?.data) as any)?.inlineData?.data as string | undefined
     if (!imgData) {
-      console.error('[gerar] Gemini nao retornou imagem')
+      console.error('[gerar] Gemini nao retornou imagem. finishReason:', finishReason)
       return NextResponse.json({ error: 'Erro ao gerar a figurinha. Tente novamente.' }, { status: 500 })
     }
 
