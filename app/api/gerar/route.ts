@@ -115,95 +115,70 @@ export async function POST(req: NextRequest) {
       console.warn('[gerar] Gemini bloqueou (finishReason:', finishReason, ') — tentando Replicate')
     }
 
-    // ── TENTATIVA 2: Replicate (fallback quando Gemini bloqueia) ──
-    // Estratégia: o InsightFace falha ao detectar rosto no template completo (bordas,
-    // logos e barra de texto poluem o frame). Solução: extrair só o retrato (top 65%),
-    // fazer face-swap nesse crop, depois compositar de volta no template completo.
+    // ── TENTATIVA 2: Replicate fofr/face-swap-with-ideogram ──
+    // Gera um card de figurinha via Ideogram com o rosto do lead — sem face-swap em template,
+    // portanto sem dependência de InsightFace detectar rosto em imagem estilizada.
     if (!cleanImage && process.env.REPLICATE_API_TOKEN) {
       let tempPhotoUrl: string | null = null
       try {
         const tempId = crypto.randomUUID()
-
-        // 1. Crop da área do retrato (sem barra de texto nem bordas inferiores)
-        const cropH  = Math.round(TH * 0.65)
-        const portraitCrop = await sharp(templateBuf)
-          .extract({ left: 0, top: 0, width: TW, height: cropH })
-          .jpeg({ quality: 90 })
-          .toBuffer()
-
-        // 2. Upload: foto do lead (temporária) + crop do retrato (fixo)
-        const [tempPhotoBlob, cropBlobAsset] = await Promise.all([
-          put('figurinhas/temp/' + tempId + '.jpg', photoBuf, {
-            access: 'public', addRandomSuffix: false,
-          }),
-          put('figurinhas/assets/template-crop.jpg', portraitCrop, {
-            access: 'public', addRandomSuffix: false,
-          }),
-        ])
+        const tempPhotoBlob = await put('figurinhas/temp/' + tempId + '.jpg', photoBuf, {
+          access: 'public', addRandomSuffix: false,
+        })
         tempPhotoUrl = tempPhotoBlob.url
 
-        // 3. Face-swap: crop como target (rosto detectável), lead como source
-        console.log('[gerar] Replicate: tentando com crop do retrato')
-        const output = await replicate.run(REPLICATE_MODEL as `${string}/${string}:${string}`, {
+        const cardPrompt = [
+          'FIFA World Cup 2026 Brazil official collectible sticker card.',
+          'Bright thick yellow golden border frame.',
+          'Teal turquoise background.',
+          'Large glowing green number 26 upper area.',
+          'Copa do Mundo 2026 FIFA official badge.',
+          'Soccer player portrait in yellow Brazil jersey.',
+          'Professional studio sports card lighting.',
+          'Dark navy blue info bar at bottom.',
+          'High quality photorealistic trading card.',
+        ].join(' ')
+
+        console.log('[gerar] Replicate Ideogram: gerando card')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const output: any = await replicate.run('fofr/face-swap-with-ideogram' as `${string}/${string}`, {
           input: {
-            input_image: cropBlobAsset.url,  // crop do Neymar — rosto mais fácil de detectar
-            swap_image:  tempPhotoUrl,        // foto do lead
+            face_image:      tempPhotoUrl,
+            prompt:          cardPrompt,
+            negative_prompt: 'blurry, distorted, watermark, text, low quality, cartoon',
+            style_type:      'Realistic',
+            width:           816,
+            height:          1088,
           },
         })
 
         if (output) {
-          const resultUrl  = Array.isArray(output) ? output[0] : output as unknown as string
-          const resFetch   = await fetch(resultUrl)
-          const swappedBuf = Buffer.from(await resFetch.arrayBuffer())
-
-          // 4. Redimensiona resultado para as dimensões do crop original
-          const swappedResized = await sharp(swappedBuf)
-            .resize(TW, cropH, { fit: 'cover', position: 'centre' })
-            .toBuffer()
-
-          // 5. Compõe: swap cobre o retrato; template original aparece embaixo (barra + bordas)
-          const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
-          cleanImage = await sharp(templateBuf)
-            .composite([
-              { input: swappedResized, top: 0, left: 0 },
-              { input: Buffer.from(textSvg), top: 0, left: 0 },
-            ])
+          const resultUrl = Array.isArray(output) ? output[0] : output as string
+          const genBuf    = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
+          const textSvg   = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
+          cleanImage = await sharp(genBuf)
+            .resize(TW, TH, { fit: 'cover', position: 'centre' })
+            .composite([{ input: Buffer.from(textSvg), top: 0, left: 0 }])
             .jpeg({ quality: 92 })
             .toBuffer()
-
-          console.log('[gerar] Replicate OK')
+          console.log('[gerar] Replicate Ideogram OK')
         } else {
-          console.warn('[gerar] Replicate retornou null (rosto não detectado no crop)')
+          console.warn('[gerar] Replicate Ideogram retornou null')
         }
 
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
       } catch (repErr) {
         if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-        console.warn('[gerar] Replicate falhou:', repErr)
+        console.warn('[gerar] Replicate Ideogram falhou:', repErr)
       }
     }
 
-    // ── TENTATIVA 3: Sharp compositing (fallback final, sem IA) ──
+    // ── Ambos falharam: pede ao lead para enviar outra foto ──
     if (!cleanImage) {
-      console.log('[gerar] Sharp compositing fallback')
-      const portraitH = Math.round(TH * 0.72)
-
-      // Redimensiona foto do lead para cobrir a área do retrato
-      const userPortrait = await sharp(photoBuf)
-        .resize(TW, portraitH, { fit: 'cover', position: 'top' })
-        .jpeg({ quality: 92 })
-        .toBuffer()
-
-      // Compõe: template.jpg de base + foto do lead cobrindo área do jogador + texto
-      const textSvg = buildTextSvg(TW, TH, nomeUpper, infoLine, clubeUpper)
-      cleanImage = await sharp(templateBuf)
-        .composite([
-          { input: userPortrait, top: 0, left: 0 },
-          { input: Buffer.from(textSvg), top: 0, left: 0 },
-        ])
-        .jpeg({ quality: 92 })
-        .toBuffer()
-
+      return NextResponse.json({
+        error: 'Não conseguimos processar esta foto. Envie uma foto com o rosto bem visível, em boa iluminação e sem outras pessoas no enquadramento.',
+        blocked: true,
+      }, { status: 422 })
     }
 
     // ── Salva no Blob e gera preview ────────────────────────────
