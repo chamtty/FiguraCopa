@@ -109,13 +109,11 @@ export async function POST(req: NextRequest) {
         const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
 
         // gpt-image-2 gera em 2:3; nosso template é ~3:4 (TW×TH).
-        // fit:'contain' escala preservando proporção e preenche laterais com amarelo Copa
-        // (r:252 g:201 b:0), que se mescla com a borda amarela do card. Sem corte.
+        // fit:'fill' estica para TW×TH sem corte e sem bandas (~11% de distorção horizontal,
+        // imperceptível em fotos de rosto). É a melhor opção para manter a resolução exata
+        // do template sem artefatos visuais nas bordas.
         cleanImage = await sharp(genBuf)
-          .resize(TW, TH, {
-            fit: 'contain',
-            background: { r: 252, g: 201, b: 0, alpha: 1 },
-          })
+          .resize(TW, TH, { fit: 'fill' })
           .jpeg({ quality: 92 })
           .toBuffer()
         console.log('[gerar] gpt-image-2 OK')

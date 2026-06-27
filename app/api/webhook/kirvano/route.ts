@@ -6,8 +6,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     console.log('[webhook/kirvano] evento:', body?.event, '| status:', body?.status)
 
-    // Kirvano envia o e-mail do comprador em customer.email
     const email: string | undefined = body?.customer?.email?.toLowerCase().trim()
+    const phone: string | undefined = body?.customer?.phone_number?.trim()
     const status: string = (body?.status || '').toUpperCase()
     const event: string  = (body?.event  || '').toUpperCase()
 
@@ -22,32 +22,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'email ausente' }, { status: 400 })
     }
 
-    console.log('[webhook/kirvano] processando pagamento para:', email)
+    console.log('[webhook/kirvano] processando pagamento para:', email, '| telefone:', phone)
 
-    // Busca todas as figurinhas do lead pelo índice de e-mail
     const emailKey = email.replace('@', '--at--')
-    const { blobs } = await list({ prefix: 'figurinhas/idx/' + emailKey + '/' })
+    const { blobs: idxBlobs } = await list({ prefix: 'figurinhas/idx/' + emailKey + '/' })
 
-    if (!blobs.length) {
+    if (!idxBlobs.length) {
       console.error('[webhook/kirvano] nenhuma figurinha encontrada para:', email)
       return NextResponse.json({ error: 'figurinha nao encontrada' }, { status: 404 })
     }
 
-    // Marca todas as figurinhas não pagas como pagas
+    // Marca todas as figurinhas não pagas como pagas no index
     let marcadas = 0
-    for (const blob of blobs) {
-      const res  = await fetch(blob.url)
-      const data: { nome: string; blobUrl: string; paid: boolean } = await res.json()
+    const paidIds: string[] = []
+
+    for (const blob of idxBlobs) {
+      const data: { nome: string; blobUrl: string; paid: boolean } =
+        await fetch(blob.url).then(r => r.json())
 
       if (!data.paid) {
-        const updated = JSON.stringify({ nome: data.nome, blobUrl: data.blobUrl, paid: true })
-        await put(blob.pathname, Buffer.from(updated), {
-          access: 'public',
-          addRandomSuffix: false,
-          contentType: 'application/json',
-        })
+        await put(blob.pathname,
+          Buffer.from(JSON.stringify({ nome: data.nome, blobUrl: data.blobUrl, paid: true })),
+          { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+
+        // Extrai o ID para atualizar o meta
+        const id = blob.pathname.split('/').pop()?.replace('.json', '')
+        if (id) paidIds.push(id)
         marcadas++
         console.log('[webhook/kirvano] liberada:', blob.pathname)
+      }
+    }
+
+    // Salva o telefone no meta JSON de cada figurinha liberada
+    // Assim o /api/sticker pode devolver o telefone ao Leona
+    if (phone && paidIds.length) {
+      for (const id of paidIds) {
+        try {
+          const metaPath = 'figurinhas/meta/' + id + '.json'
+          const { blobs: metaBlobs } = await list({ prefix: metaPath })
+          if (!metaBlobs.length) continue
+
+          const meta: Record<string, unknown> =
+            await fetch(metaBlobs[0].url).then(r => r.json())
+
+          if (!meta.phone) {
+            await put(metaPath,
+              Buffer.from(JSON.stringify({ ...meta, phone })),
+              { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+            console.log('[webhook/kirvano] telefone salvo no meta:', id)
+          }
+        } catch (metaErr) {
+          console.warn('[webhook/kirvano] erro ao salvar telefone no meta:', metaErr)
+        }
       }
     }
 
