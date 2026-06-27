@@ -136,7 +136,7 @@ function Countdown() {
       background: '#001C58', borderRadius: 12, padding: '10px 16px',
       marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
     }}>
-      <span style={{ fontSize: 13, fontWeight: 700, color: 'white' }}>⏰ Oferta expira em:</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'white' }}>🗑️ Figurinha será excluída em:</span>
       <span style={{ fontSize: 24, fontWeight: 900, color: '#FFDB00', letterSpacing: 3, fontVariantNumeric: 'tabular-nums' }}>
         {m}:{s}
       </span>
@@ -635,6 +635,16 @@ export default function CriarPage() {
           {/* Countdown */}
           <Countdown />
 
+          {/* Tentar novamente */}
+          <div style={{ background: 'white', borderRadius: 16, padding: '16px 18px', marginBottom: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', textAlign: 'center', boxSizing: 'border-box' }}>
+            <p style={{ fontSize: 14, fontWeight: 800, color: '#374151', margin: '0 0 10px' }}>
+              😕 Não gostou do resultado?
+            </p>
+            <button onClick={handleRetry} style={{ width: '100%', background: '#f3f4f6', color: '#374151', border: '2px solid #d1d5db', borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: 'pointer', padding: '12px 0', letterSpacing: 0.3 }}>
+              🔄 Gerar novamente
+            </button>
+          </div>
+
           {/* Bloco preço + CTA */}
           <div style={{ background: 'white', borderRadius: 20, padding: '20px 16px', marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.10)', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 4 }}>
@@ -670,16 +680,6 @@ export default function CriarPage() {
                 <span key={m} style={{ fontSize: 10, fontWeight: 800, border: '1.5px solid #d1d5db', borderRadius: 6, padding: '3px 9px', color: '#374151', letterSpacing: 0.5 }}>{m}</span>
               ))}
             </div>
-          </div>
-
-          {/* Tentar novamente */}
-          <div style={{ background: 'white', borderRadius: 16, padding: '16px 18px', marginBottom: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', textAlign: 'center', boxSizing: 'border-box' }}>
-            <p style={{ fontSize: 14, fontWeight: 800, color: '#374151', margin: '0 0 10px' }}>
-              😕 Não gostou do resultado?
-            </p>
-            <button onClick={handleRetry} style={{ width: '100%', background: '#f3f4f6', color: '#374151', border: '2px solid #d1d5db', borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: 'pointer', padding: '12px 0', letterSpacing: 0.3 }}>
-              🔄 Gerar novamente
-            </button>
           </div>
 
           {/* Como funciona */}
