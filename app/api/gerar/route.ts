@@ -108,12 +108,11 @@ export async function POST(req: NextRequest) {
 
         const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
 
-        // gpt-image-2 gera em 2:3; nosso template é ~3:4 (TW×TH).
-        // fit:'fill' estica para TW×TH sem corte e sem bandas (~11% de distorção horizontal,
-        // imperceptível em fotos de rosto). É a melhor opção para manter a resolução exata
-        // do template sem artefatos visuais nas bordas.
+        // Sem redimensionamento: gpt-image-2 gera em 2:3 e o template é ~3:4.
+        // Qualquer conversão entre os dois ratios implica distorção (fill),
+        // corte (cover) ou barras (contain). Salvamos na resolução nativa 2:3
+        // que já contém o card completo sem artefatos.
         cleanImage = await sharp(genBuf)
-          .resize(TW, TH, { fit: 'fill' })
           .jpeg({ quality: 92 })
           .toBuffer()
         console.log('[gerar] gpt-image-2 OK')
@@ -156,8 +155,9 @@ export async function POST(req: NextRequest) {
         { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
     }
 
-    // Preview com watermark
-    const wm = buildWatermarkSvg(TW, TH)
+    // Preview com watermark — usa dimensões reais da imagem gerada (pode diferir do template)
+    const { width: IW, height: IH } = await sharp(cleanImage).metadata()
+    const wm = buildWatermarkSvg(IW!, IH!)
     const previewImage = await sharp(cleanImage)
       .composite([{ input: Buffer.from(wm), top: 0, left: 0 }])
       .jpeg({ quality: 88 })
