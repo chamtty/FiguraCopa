@@ -27,7 +27,23 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json()
+    // Leona envolve {ai.response} em aspas extras: "{ ... }"
+    // Lemos como texto e removemos as aspas externas antes de parsear
+    const rawText = await req.text()
+    const trimmed = rawText.trim()
+    const toParse = (trimmed.startsWith('"') && trimmed.endsWith('"'))
+      ? trimmed.slice(1, -1)
+      : trimmed
+    const body = JSON.parse(toParse) as Record<string, string>
+
+    // IA retornou que faltam informações — Leona deve solicitar ao lead
+    if (body.status === 'faltando') {
+      return NextResponse.json(
+        { error: 'faltando', mensagem: body.mensagem },
+        { status: 400 }
+      )
+    }
+
     const {
       photoUrl,
       nome    = '',
