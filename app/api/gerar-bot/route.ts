@@ -4,31 +4,26 @@ import Replicate from 'replicate'
 import sharp from 'sharp'
 import path from 'path'
 import fs from 'fs'
+import { after } from 'next/server'
 
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
-
-// Mesmo limite do /api/gerar — gpt-image-2 leva ~50s
 export const maxDuration = 120
 
-// Endpoint chamado pelo Leona (bloco de integração POST) quando o lead
-// solicita a figurinha pelo WhatsApp.
-//
 // POST /api/gerar-bot
-// Body JSON:
-//   { photoUrl, nome, dia, mes, ano, clube, peso, altura, phone?, email? }
 //
-// Resposta (200):
-//   { id, previewUrl, checkoutUrl }
-//   previewUrl → URL pública do preview com watermark (Leona envia como imagem)
-//   checkoutUrl → link de compra para enviar ao lead
+// Retorna { id, status: 'processing' } imediatamente (~3-5s).
+// A geração roda em background via after() e leva ~50s.
 //
-// Header opcional: X-API-Key: LEONA_API_SECRET
+// Fluxo no Leona:
+//   1. POST /api/gerar-bot → salva {id}
+//   2. Envia mensagem "Gerando sua figurinha, aguarde ~1 minuto..."
+//   3. Aguarda 70s (bloco de espera)
+//   4. GET /api/gerar-bot/status?id={id} → pega previewUrl e checkoutUrl
+//   5. Envia imagem (previewUrl) + link (checkoutUrl)
 export async function POST(req: NextRequest) {
   const apiSecret = process.env.LEONA_API_SECRET
-  if (apiSecret) {
-    if (req.headers.get('x-api-key') !== apiSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (apiSecret && req.headers.get('x-api-key') !== apiSecret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
@@ -53,14 +48,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Baixa a foto do WhatsApp (URL pública enviada pelo Leona)
-    const photoRes = await fetch(photoUrl)
-    if (!photoRes.ok) {
-      return NextResponse.json({ error: 'Não foi possível baixar a foto' }, { status: 400 })
-    }
-    const photoBuf = Buffer.from(await photoRes.arrayBuffer())
-
-    // Formata os dados
+    // Formata dados
     const alturaNum  = parseFloat(altura)
     const alturaStr  = alturaNum > 3
       ? (alturaNum / 100).toFixed(2).replace('.', ',') + 'm'
@@ -77,9 +65,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Template não encontrado' }, { status: 500 })
     }
     const templateBuf  = fs.readFileSync(templatePath)
-    const templateMeta = await sharp(templateBuf).metadata()
-    const TW = templateMeta.width!
-    const TH = templateMeta.height!
+    const { width: TW, height: TH } = await sharp(templateBuf).metadata()
 
     const promptLines = [
       'You are a sports trading card designer.',
@@ -106,120 +92,146 @@ export async function POST(req: NextRequest) {
       '- Preserve all card elements: yellow border, teal background, green 26, COPA logo, flag badge, BRA text, jersey.',
     ]
 
-    // ── Gera figurinha via gpt-image-2 ────────────────────────────
-    let cleanImage: Buffer | null = null
-    let tempPhotoUrl: string | null = null
-
-    try {
-      const tempId = crypto.randomUUID()
-      const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
-        put('figurinhas/temp/' + tempId + '.jpg', photoBuf, { access: 'public', addRandomSuffix: false }),
-        put('figurinhas/assets/template.jpg', templateBuf, { access: 'public', addRandomSuffix: false }),
-      ])
-      tempPhotoUrl = tempPhotoBlob.url
-
-      console.log('[gerar-bot] gpt-image-2: iniciando geração para', nomeUpper)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const output: any = await replicate.run('openai/gpt-image-2' as `${string}/${string}`, {
-        input: {
-          prompt:           promptLines.join('\n'),
-          input_images:     [templateBlobAsset.url, tempPhotoUrl],
-          aspect_ratio:     '2:3',
-          quality:          'medium',
-          output_format:    'png',
-          moderation:       'low',
-          number_of_images: 1,
-        },
-      })
-
-      if (output) {
-        const resultUrl: string = Array.isArray(output)
-          ? output[0]
-          : typeof output?.url === 'function' ? output.url() : String(output)
-
-        const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
-        cleanImage = await sharp(genBuf).jpeg({ quality: 92 }).toBuffer()
-        console.log('[gerar-bot] gpt-image-2 OK')
-      } else {
-        console.warn('[gerar-bot] gpt-image-2 retornou null')
-      }
-
-      if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-    } catch (repErr) {
-      if (tempPhotoUrl) del(tempPhotoUrl).catch(() => {})
-      console.warn('[gerar-bot] gpt-image-2 falhou:', repErr)
+    // Baixa foto e faz uploads temporários (~3s) — antes de retornar
+    const photoRes = await fetch(photoUrl)
+    if (!photoRes.ok) {
+      return NextResponse.json({ error: 'Não foi possível baixar a foto' }, { status: 400 })
     }
+    const photoBuf = Buffer.from(await photoRes.arrayBuffer())
 
-    if (!cleanImage) {
-      return NextResponse.json({
-        error: 'Não conseguimos processar esta foto. Peça ao lead para enviar uma foto com rosto bem visível, em boa iluminação, sem outras pessoas.',
-      }, { status: 422 })
-    }
+    const tempId = crypto.randomUUID()
+    const id     = crypto.randomUUID()
 
-    // ── Salva figurinha + preview no Blob ─────────────────────────
-    const id = crypto.randomUUID()
+    const [tempPhotoBlob, templateBlobAsset] = await Promise.all([
+      put('figurinhas/temp/' + tempId + '.jpg', photoBuf, { access: 'public', addRandomSuffix: false }),
+      put('figurinhas/assets/template.jpg', templateBuf, { access: 'public', addRandomSuffix: false }),
+    ])
 
-    // Figurinha limpa (alta resolução — para download após pagamento)
-    const stickerBlob = await put(
-      'figurinhas/' + id + '.jpg',
-      cleanImage,
-      { access: 'public', addRandomSuffix: false }
-    )
+    // Checkout URL
+    const checkoutBase = (process.env.NEXT_PUBLIC_CHECKOUT_URL || '').replace(/\/$/, '')
+    const checkoutUrl  = checkoutBase
+      ? `${checkoutBase}?custom=${id}${email ? '&customer.email=' + encodeURIComponent(email) : ''}`
+      : ''
 
-    // Preview com watermark salvo no Blob (Leona precisa de URL pública para enviar como imagem)
-    const { width: IW, height: IH } = await sharp(cleanImage).metadata()
-    const wm = buildWatermarkSvg(IW!, IH!)
-    const previewBuf = await sharp(cleanImage)
-      .composite([{ input: Buffer.from(wm), top: 0, left: 0 }])
-      .jpeg({ quality: 88 })
-      .toBuffer()
-    const previewBlob = await put(
-      'figurinhas/preview/' + id + '.jpg',
-      previewBuf,
-      { access: 'public', addRandomSuffix: false }
-    )
-
-    // Metadata (webhook Kirvano + cron de limpeza)
+    // Meta inicial com status 'processing'
     await put(
       'figurinhas/meta/' + id + '.json',
       Buffer.from(JSON.stringify({
-        email,
-        nome: nomeUpper,
-        blobUrl: stickerBlob.url,
-        phone,
-        source: 'whatsapp',
-        createdAt: Date.now(),
+        email, nome: nomeUpper, status: 'processing',
+        phone, source: 'whatsapp', checkoutUrl, createdAt: Date.now(),
       })),
       { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
     )
 
-    // Index por e-mail (área de membros)
-    if (email) {
-      const emailKey = email.toLowerCase().replace('@', '--at--')
-      await put(
-        'figurinhas/idx/' + emailKey + '/' + id + '.json',
-        Buffer.from(JSON.stringify({ nome: nomeUpper, blobUrl: stickerBlob.url, paid: false })),
-        { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
-      )
-    }
-
-    // Index por telefone (webhook Kirvano identifica por phone quando não tem email)
+    // Phone index (blobUrl vazio, atualizado quando geração terminar)
     if (phone) {
-      const phoneKey = phone.replace(/\D/g, '')
+      const phoneDigits = phone.replace(/\D/g, '')
       await put(
-        'figurinhas/idx-phone/' + phoneKey + '/' + id + '.json',
-        Buffer.from(JSON.stringify({ nome: nomeUpper, blobUrl: stickerBlob.url, paid: false })),
+        'figurinhas/idx-phone/' + phoneDigits + '/' + id + '.json',
+        Buffer.from(JSON.stringify({ nome: nomeUpper, blobUrl: '', paid: false })),
         { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
       )
     }
 
-    // URL de checkout
-    const baseCheckout = (process.env.NEXT_PUBLIC_CHECKOUT_URL || '').replace(/\/$/, '')
-    const checkoutUrl  = baseCheckout
-      ? `${baseCheckout}?custom=${id}${email ? '&customer.email=' + encodeURIComponent(email) : ''}`
-      : ''
+    // ── Geração em background (roda após retornar o JSON) ──────────
+    after(async () => {
+      let tempUrl: string | null = tempPhotoBlob.url
+      try {
+        console.log('[gerar-bot] gpt-image-2: iniciando para', nomeUpper)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const output: any = await replicate.run('openai/gpt-image-2' as `${string}/${string}`, {
+          input: {
+            prompt:           promptLines.join('\n'),
+            input_images:     [templateBlobAsset.url, tempPhotoBlob.url],
+            aspect_ratio:     '2:3',
+            quality:          'medium',
+            output_format:    'png',
+            moderation:       'low',
+            number_of_images: 1,
+          },
+        })
 
-    return NextResponse.json({ id, previewUrl: previewBlob.url, checkoutUrl })
+        del(tempPhotoBlob.url).catch(() => {})
+        tempUrl = null
+
+        if (!output) throw new Error('gpt-image-2 retornou null')
+
+        const resultUrl: string = Array.isArray(output)
+          ? output[0]
+          : typeof output?.url === 'function' ? output.url() : String(output)
+
+        const genBuf     = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
+        const cleanImage = await sharp(genBuf).jpeg({ quality: 92 }).toBuffer()
+
+        // Figurinha limpa
+        const stickerBlob = await put(
+          'figurinhas/' + id + '.jpg',
+          cleanImage,
+          { access: 'public', addRandomSuffix: false }
+        )
+
+        // Preview com watermark
+        const { width: IW, height: IH } = await sharp(cleanImage).metadata()
+        const wm = buildWatermarkSvg(IW!, IH!)
+        const previewBuf = await sharp(cleanImage)
+          .composite([{ input: Buffer.from(wm), top: 0, left: 0 }])
+          .jpeg({ quality: 88 })
+          .toBuffer()
+        const previewBlob = await put(
+          'figurinhas/preview/' + id + '.jpg',
+          previewBuf,
+          { access: 'public', addRandomSuffix: false }
+        )
+
+        // Atualiza meta para 'done'
+        await put(
+          'figurinhas/meta/' + id + '.json',
+          Buffer.from(JSON.stringify({
+            email, nome: nomeUpper, blobUrl: stickerBlob.url,
+            previewUrl: previewBlob.url, checkoutUrl,
+            phone, source: 'whatsapp', status: 'done', createdAt: Date.now(),
+          })),
+          { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
+        )
+
+        // Atualiza phone index com blobUrl real
+        if (phone) {
+          const phoneDigits = phone.replace(/\D/g, '')
+          await put(
+            'figurinhas/idx-phone/' + phoneDigits + '/' + id + '.json',
+            Buffer.from(JSON.stringify({ nome: nomeUpper, blobUrl: stickerBlob.url, paid: false })),
+            { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
+          )
+        }
+
+        // Email index
+        if (email) {
+          const emailKey = email.toLowerCase().replace('@', '--at--')
+          await put(
+            'figurinhas/idx/' + emailKey + '/' + id + '.json',
+            Buffer.from(JSON.stringify({ nome: nomeUpper, blobUrl: stickerBlob.url, paid: false })),
+            { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
+          )
+        }
+
+        console.log('[gerar-bot] concluído:', id)
+      } catch (err) {
+        if (tempUrl) del(tempUrl).catch(() => {})
+        console.error('[gerar-bot] erro na geração:', err)
+        // Marca erro no meta para o status endpoint parar de retornar 'processing'
+        await put(
+          'figurinhas/meta/' + id + '.json',
+          Buffer.from(JSON.stringify({
+            email, nome: nomeUpper, status: 'error',
+            phone, source: 'whatsapp', createdAt: Date.now(),
+          })),
+          { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
+        ).catch(() => {})
+      }
+    })
+
+    // Retorna imediatamente — geração continua em background
+    return NextResponse.json({ id, status: 'processing' })
 
   } catch (err) {
     console.error('[gerar-bot]', err)
