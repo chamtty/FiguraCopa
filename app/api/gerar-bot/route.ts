@@ -27,14 +27,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Leona envolve {ai.response} em aspas extras: "{ ... }"
-    // Lemos como texto e removemos as aspas externas antes de parsear
+    // Leona pode enviar o body com aspas extras, markdown, newlines, etc.
+    // Extraímos o JSON com regex: do primeiro { até o último }
     const rawText = await req.text()
-    const trimmed = rawText.trim()
-    const toParse = (trimmed.startsWith('"') && trimmed.endsWith('"'))
-      ? trimmed.slice(1, -1)
-      : trimmed
-    const body = JSON.parse(toParse) as Record<string, string>
+    console.log('[gerar-bot] raw body:', JSON.stringify(rawText.substring(0, 300)))
+
+    const match = rawText.match(/\{[\s\S]*\}/)
+    if (!match) {
+      return NextResponse.json({ error: 'Body inválido — JSON não encontrado' }, { status: 400 })
+    }
+    const body = JSON.parse(match[0]) as Record<string, string>
 
     // IA retornou que faltam informações — Leona deve solicitar ao lead
     if (body.status === 'faltando') {
