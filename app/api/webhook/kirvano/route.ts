@@ -17,45 +17,66 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: true })
     }
 
-    if (!email) {
-      console.error('[webhook/kirvano] email ausente no payload')
-      return NextResponse.json({ error: 'email ausente' }, { status: 400 })
+    if (!email && !phone) {
+      console.error('[webhook/kirvano] email e telefone ausentes no payload')
+      return NextResponse.json({ error: 'email ou telefone ausente' }, { status: 400 })
     }
 
-    console.log('[webhook/kirvano] processando pagamento para:', email, '| telefone:', phone)
+    console.log('[webhook/kirvano] processando pagamento | email:', email, '| telefone:', phone)
 
-    const emailKey = email.replace('@', '--at--')
-    const { blobs: idxBlobs } = await list({ prefix: 'figurinhas/idx/' + emailKey + '/' })
+    const paidIds = new Set<string>()
 
-    if (!idxBlobs.length) {
-      console.error('[webhook/kirvano] nenhuma figurinha encontrada para:', email)
-      return NextResponse.json({ error: 'figurinha nao encontrada' }, { status: 404 })
-    }
+    // ── Lookup por telefone (preferencial — fluxo WhatsApp) ────────
+    if (phone) {
+      const phoneDigits = phone.replace(/\D/g, '')
+      const { blobs: phoneBlobs } = await list({ prefix: 'figurinhas/idx-phone/' + phoneDigits + '/' })
 
-    // Marca todas as figurinhas não pagas como pagas no index
-    let marcadas = 0
-    const paidIds: string[] = []
+      for (const blob of phoneBlobs) {
+        const data: { nome: string; blobUrl: string; paid: boolean } =
+          await fetch(blob.url).then(r => r.json())
 
-    for (const blob of idxBlobs) {
-      const data: { nome: string; blobUrl: string; paid: boolean } =
-        await fetch(blob.url).then(r => r.json())
+        if (!data.paid) {
+          await put(blob.pathname,
+            Buffer.from(JSON.stringify({ nome: data.nome, blobUrl: data.blobUrl, paid: true })),
+            { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
 
-      if (!data.paid) {
-        await put(blob.pathname,
-          Buffer.from(JSON.stringify({ nome: data.nome, blobUrl: data.blobUrl, paid: true })),
-          { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
-
-        // Extrai o ID para atualizar o meta
-        const id = blob.pathname.split('/').pop()?.replace('.json', '')
-        if (id) paidIds.push(id)
-        marcadas++
-        console.log('[webhook/kirvano] liberada:', blob.pathname)
+          const id = blob.pathname.split('/').pop()?.replace('.json', '')
+          if (id) paidIds.add(id)
+          console.log('[webhook/kirvano] liberada (phone-idx):', blob.pathname)
+        }
       }
     }
 
-    // Salva o telefone no meta JSON de cada figurinha liberada
-    // Assim o /api/sticker pode devolver o telefone ao Leona
-    if (phone && paidIds.length) {
+    // ── Lookup por email (fluxo site) ──────────────────────────────
+    if (email) {
+      const emailKey = email.replace('@', '--at--')
+      const { blobs: emailBlobs } = await list({ prefix: 'figurinhas/idx/' + emailKey + '/' })
+
+      for (const blob of emailBlobs) {
+        const data: { nome: string; blobUrl: string; paid: boolean } =
+          await fetch(blob.url).then(r => r.json())
+
+        if (!data.paid) {
+          await put(blob.pathname,
+            Buffer.from(JSON.stringify({ nome: data.nome, blobUrl: data.blobUrl, paid: true })),
+            { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+
+          const id = blob.pathname.split('/').pop()?.replace('.json', '')
+          if (id) paidIds.add(id)
+          console.log('[webhook/kirvano] liberada (email-idx):', blob.pathname)
+        }
+      }
+    }
+
+    if (!paidIds.size) {
+      console.warn('[webhook/kirvano] nenhuma figurinha encontrada para marcar como paga')
+      return NextResponse.json({ error: 'figurinha nao encontrada' }, { status: 404 })
+    }
+
+    // ── Grava telefone no meta de cada figurinha liberada ──────────
+    // (necessário para o /api/sticker identificar o dono via phone-idx)
+    if (phone) {
+      const phoneDigits = phone.replace(/\D/g, '')
       for (const id of paidIds) {
         try {
           const metaPath = 'figurinhas/meta/' + id + '.json'
@@ -65,20 +86,33 @@ export async function POST(req: NextRequest) {
           const meta: Record<string, unknown> =
             await fetch(metaBlobs[0].url).then(r => r.json())
 
-          if (!meta.phone) {
-            await put(metaPath,
-              Buffer.from(JSON.stringify({ ...meta, phone })),
+          // Atualiza meta com phone e também cria/atualiza idx-phone se ainda não existia
+          const updated = { ...meta, phone }
+          await put(metaPath,
+            Buffer.from(JSON.stringify(updated)),
+            { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+
+          // Garante que o idx-phone existe e está marcado como pago
+          // (pode ter sido criado pela geração no site, onde phone não estava disponível)
+          const phoneIdxPath = 'figurinhas/idx-phone/' + phoneDigits + '/' + id + '.json'
+          const { blobs: phoneIdxBlobs } = await list({ prefix: phoneIdxPath })
+          if (!phoneIdxBlobs.length) {
+            // Cria entrada no phone-idx para este lead (gerado pelo site)
+            await put(phoneIdxPath,
+              Buffer.from(JSON.stringify({ nome: meta.nome as string, blobUrl: meta.blobUrl as string, paid: true })),
               { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
-            console.log('[webhook/kirvano] telefone salvo no meta:', id)
+            console.log('[webhook/kirvano] phone-idx criado para:', id)
           }
+
+          console.log('[webhook/kirvano] meta atualizado com telefone:', id)
         } catch (metaErr) {
-          console.warn('[webhook/kirvano] erro ao salvar telefone no meta:', metaErr)
+          console.warn('[webhook/kirvano] erro ao atualizar meta:', metaErr)
         }
       }
     }
 
-    console.log('[webhook/kirvano] total liberadas:', marcadas, 'para:', email)
-    return NextResponse.json({ ok: true, liberadas: marcadas })
+    console.log('[webhook/kirvano] total liberadas:', paidIds.size)
+    return NextResponse.json({ ok: true, liberadas: paidIds.size })
 
   } catch (err) {
     console.error('[webhook/kirvano]', err)
