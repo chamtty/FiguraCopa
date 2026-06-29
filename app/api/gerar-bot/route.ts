@@ -240,18 +240,18 @@ export async function POST(req: NextRequest) {
 }
 
 function buildWatermarkSvg(tw: number, th: number): string {
-  const size = Math.round(tw * 0.10)
-  const sm   = Math.round(tw * 0.032)
+  const size = Math.round(tw * 0.11)
+  const sm   = Math.round(tw * 0.036)
   const bp   = [0.04, 0.20, 0.37, 0.54, 0.70, 0.87]
   const sp   = [0.12, 0.29, 0.46, 0.62, 0.79]
   let svg = '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">'
   for (const f of bp) {
     const y = Math.round(th * f), cx = Math.round(tw / 2)
-    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.21" font-weight="bold" text-anchor="middle" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW - PREVIEW</text>'
+    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.60" font-weight="bold" text-anchor="middle" stroke="#000000" stroke-width="3" stroke-opacity="0.35" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW - PREVIEW</text>'
   }
   for (const f of sp) {
     const y = Math.round(th * f), cx = Math.round(tw / 2)
-    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + sm + '" fill="white" fill-opacity="0.24" text-anchor="middle" transform="rotate(-38,' + cx + ',' + y + ')">figurinha-copa2026.com</text>'
+    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + sm + '" fill="white" fill-opacity="0.60" text-anchor="middle" stroke="#000000" stroke-width="2" stroke-opacity="0.30" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">figurinha-copa2026.com</text>'
   }
   return svg + '</svg>'
 }
