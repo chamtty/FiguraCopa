@@ -265,19 +265,22 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Parseia formato "key: value," que a IA às vezes gera sem aspas
+// Parseia formato sem aspas que a IA gera (ex: {status:ok,nome:CARDOSO,...})
+// Funciona com ou sem espaços, uma linha ou múltiplas linhas
 function parseLooseObject(text: string): Record<string, string> {
   const result: Record<string, string> = {}
-  const inner = text.replace(/^\{/, '').replace(/\}$/, '')
-  for (const line of inner.split('\n')) {
-    const trimmed = line.trim()
+  const inner = text.replace(/^\{/, '').replace(/\}$/, '').trim()
+  // Normaliza newlines em vírgulas e divide por vírgula
+  const pairs = inner.replace(/\n/g, ',').split(',')
+  for (const pair of pairs) {
+    const trimmed = pair.trim()
     if (!trimmed) continue
-    // Separa na PRIMEIRA ocorrência de ': ' (preserva URLs com ://)
-    const sepIdx = trimmed.indexOf(': ')
-    if (sepIdx === -1) continue
-    const key = trimmed.slice(0, sepIdx).replace(/["'\s]/g, '')
-    const value = trimmed.slice(sepIdx + 2).replace(/,\s*$/, '').replace(/^["']|["']$/g, '').trim()
-    if (key) result[key] = value
+    // Divide no PRIMEIRO ':' — preserva URLs (https://...)
+    const colonIdx = trimmed.indexOf(':')
+    if (colonIdx === -1) continue
+    const key   = trimmed.slice(0, colonIdx).replace(/["'\s]/g, '')
+    const value = trimmed.slice(colonIdx + 1).replace(/^["'\s]+|["'\s]+$/g, '')
+    if (key && value) result[key] = value
   }
   return result
 }
