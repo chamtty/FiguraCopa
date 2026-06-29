@@ -36,7 +36,15 @@ export async function POST(req: NextRequest) {
     if (!match) {
       return NextResponse.json({ error: 'Body inválido — JSON não encontrado' }, { status: 400 })
     }
-    const body = JSON.parse(match[0]) as Record<string, string>
+
+    let body: Record<string, string>
+    try {
+      // Tenta JSON estrito primeiro
+      body = JSON.parse(match[0])
+    } catch {
+      // Fallback: IA gerou "key: value" sem aspas — parseia manualmente
+      body = parseLooseObject(match[0])
+    }
 
     // IA retornou que faltam informações — Leona deve solicitar ao lead
     if (body.status === 'faltando') {
@@ -255,6 +263,23 @@ export async function POST(req: NextRequest) {
     console.error('[gerar-bot]', err)
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
   }
+}
+
+// Parseia formato "key: value," que a IA às vezes gera sem aspas
+function parseLooseObject(text: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  const inner = text.replace(/^\{/, '').replace(/\}$/, '')
+  for (const line of inner.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    // Separa na PRIMEIRA ocorrência de ': ' (preserva URLs com ://)
+    const sepIdx = trimmed.indexOf(': ')
+    if (sepIdx === -1) continue
+    const key = trimmed.slice(0, sepIdx).replace(/["'\s]/g, '')
+    const value = trimmed.slice(sepIdx + 2).replace(/,\s*$/, '').replace(/^["']|["']$/g, '').trim()
+    if (key) result[key] = value
+  }
+  return result
 }
 
 function buildWatermarkSvg(tw: number, th: number): string {
