@@ -103,9 +103,12 @@ export async function POST(req: NextRequest) {
       '',
       'Instructions:',
       '1. Use IMAGE 1 as the complete card layout — keep every design element exactly as shown.',
-      '2. Feature the person from IMAGE 2 in the portrait area of the card. Show their full upper',
-      '   body from approximately waist level to just above the top of the head — same framing as',
-      '   the template player. Do NOT zoom in on just the face or head. Match the studio lighting.',
+      '2. Feature the person from IMAGE 2 in the portrait area of the card.',
+      '   - Frame from the upper chest/pectoral level to just above the top of the head (close',
+      '     portrait matching the template — NOT full torso, NOT face-only closeup).',
+      '   - Preserve the person\'s gender: if the person in IMAGE 2 is female, show her naturally',
+      '     with feminine features and appearance — do not impose a male body or physique.',
+      '   - Match the studio lighting and background of the original template.',
       '3. Update the text in the bottom info bar — show ONLY the values below, no labels:',
       '   Line 1 (large bold white): ' + nomeUpper,
       '   Line 2 (small white): ' + infoLine,
@@ -137,7 +140,7 @@ export async function POST(req: NextRequest) {
     // Checkout URL
     const checkoutBase = (process.env.NEXT_PUBLIC_CHECKOUT_URL || '').replace(/\/$/, '')
     const checkoutUrl  = checkoutBase
-      ? `${checkoutBase}?custom=${id}${email ? '&customer.email=' + encodeURIComponent(email) : ''}`
+      ? `${checkoutBase}?custom=${id}${email ? '&customer.email=' + encodeURIComponent(email) : ''}${phone ? '&customer.phone=' + encodeURIComponent(phone) : ''}`
       : ''
 
     // Meta inicial com status 'processing'
@@ -170,7 +173,7 @@ export async function POST(req: NextRequest) {
           input: {
             prompt:           promptLines.join('\n'),
             input_images:     [templateBlobAsset.url, tempPhotoBlob.url],
-            aspect_ratio:     '2:3',
+            aspect_ratio:     '3:4',
             quality:          'medium',
             output_format:    'png',
             moderation:       'low',
@@ -211,11 +214,13 @@ export async function POST(req: NextRequest) {
         )
 
         // Atualiza meta para 'done'
+        const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
+        const viewUrl = appUrl ? `${appUrl}/view/${id}` : ''
         await put(
           'figurinhas/meta/' + id + '.json',
           Buffer.from(JSON.stringify({
             email, nome: nomeUpper, blobUrl: stickerBlob.url,
-            previewUrl: previewBlob.url, checkoutUrl,
+            previewUrl: previewBlob.url, checkoutUrl, viewUrl,
             phone, source: 'whatsapp', status: 'done', createdAt: Date.now(),
           })),
           { access: 'public', addRandomSuffix: false, contentType: 'application/json' }
