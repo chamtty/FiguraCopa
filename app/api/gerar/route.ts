@@ -79,7 +79,6 @@ export async function POST(req: NextRequest) {
     ]
 
     // ── Replicate openai/gpt-image-2 ──────────────────────────────
-    // Modelo oficial da OpenAI no Replicate. moderation:'low' permite fotos de crianças/adolescentes.
     let cleanImage: Buffer | null = null
     let tempPhotoUrl: string | null = null
 
@@ -98,9 +97,9 @@ export async function POST(req: NextRequest) {
           prompt:           promptLines.join('\n'),
           input_images:     [templateBlobAsset.url, tempPhotoUrl],
           aspect_ratio:     '1024x1536',
-          quality:          'medium',  // high ultrapassa 120s de maxDuration
-          output_format:    'png',     // PNG intermediário evita dupla compressão JPEG
-          moderation:       'low',     // bypassa bloqueio de fotos de crianças/adolescentes
+          quality:          'medium',
+          output_format:    'png',
+          moderation:       'low',
           number_of_images: 1,
         },
       })
@@ -112,10 +111,6 @@ export async function POST(req: NextRequest) {
 
         const genBuf = Buffer.from(await (await fetch(resultUrl)).arrayBuffer())
 
-        // Sem redimensionamento: gpt-image-2 gera em 2:3 e o template é ~3:4.
-        // Qualquer conversão entre os dois ratios implica distorção (fill),
-        // corte (cover) ou barras (contain). Salvamos na resolução nativa 2:3
-        // que já contém o card completo sem artefatos.
         cleanImage = await sharp(genBuf)
           .jpeg({ quality: 92 })
           .toBuffer()
@@ -141,17 +136,17 @@ export async function POST(req: NextRequest) {
     const id   = crypto.randomUUID()
     const blob = await put('figurinhas/' + id + '.jpg', cleanImage, { access: 'public', addRandomSuffix: false })
 
-    // Metadata por ID (webhook + cron de limpeza)
+    // Metadata por ID
     await put('figurinhas/meta/' + id + '.json',
       Buffer.from(JSON.stringify({
         email,
         nome: nomeUpper,
         blobUrl: blob.url,
-        createdAt: Date.now(), // usado pelo /api/cleanup para expirar após 24h
+        createdAt: Date.now(),
       })),
       { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
 
-    // Index por e-mail (área de membros)
+    // Index por e-mail
     if (email) {
       const emailKey = email.toLowerCase().replace('@', '--at--')
       await put('figurinhas/idx/' + emailKey + '/' + id + '.json',
@@ -159,7 +154,7 @@ export async function POST(req: NextRequest) {
         { access: 'public', addRandomSuffix: false, contentType: 'application/json' })
     }
 
-    // Preview com watermark — usa dimensões reais da imagem gerada (pode diferir do template)
+    // Preview com watermark
     const { width: IW, height: IH } = await sharp(cleanImage).metadata()
     const wm = buildWatermarkSvg(IW!, IH!)
     const previewImage = await sharp(cleanImage)
@@ -186,4 +181,11 @@ function buildWatermarkSvg(tw: number, th: number): string {
   let svg = '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">'
   for (const f of bp) {
     const y = Math.round(th * f), cx = Math.round(tw / 2)
-    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.82" font-weight="bold" text-anchor="middle" stroke="#000000" stroke-width="4" stroke
+    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.82" font-weight="bold" text-anchor="middle" stroke="#000000" stroke-width="4" stroke-opacity="0.55" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW - PREVIEW</text>'
+  }
+  for (const f of sp) {
+    const y = Math.round(th * f), cx = Math.round(tw / 2)
+    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + sm + '" fill="white" fill-opacity="0.80" text-anchor="middle" stroke="#000000" stroke-width="2" stroke-opacity="0.50" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">figurinha-copa2026.com</text>'
+  }
+  return svg + '</svg>'
+}
