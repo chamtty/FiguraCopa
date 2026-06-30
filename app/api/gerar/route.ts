@@ -174,18 +174,25 @@ export async function POST(req: NextRequest) {
 }
 
 function buildWatermarkSvg(tw: number, th: number): string {
-  const size = Math.round(tw * 0.11)
-  const sm   = Math.round(tw * 0.036)
-  const bp   = [0.04, 0.20, 0.37, 0.54, 0.70, 0.87]
-  const sp   = [0.12, 0.29, 0.46, 0.62, 0.79]
+  // Grade diagonal cobrindo toda a imagem:
+  // 4 colunas × N linhas em Y, cada texto rotacionado -38° ao redor do seu próprio ponto.
+  const size   = Math.round(tw * 0.085)
+  const sm     = Math.round(tw * 0.028)
+  const yStep  = Math.round(size * 1.9)          // espaçamento entre linhas
+  const yExtra = Math.round(tw * 0.8)            // margem extra para cobrir os cantos com rotação
+  const xs     = [0, Math.round(tw * 0.33), Math.round(tw * 0.66), tw]
+
   let svg = '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">'
-  for (const f of bp) {
-    const y = Math.round(th * f), cx = Math.round(tw / 2)
-    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.82" font-weight="bold" text-anchor="middle" stroke="#000000" stroke-width="4" stroke-opacity="0.55" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW - PREVIEW</text>'
+
+  for (let y = -yExtra; y <= th + yExtra; y += yStep) {
+    for (const cx of xs) {
+      // Linha PREVIEW
+      svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.80" font-weight="bold" text-anchor="middle" stroke="#000000" stroke-width="3" stroke-opacity="0.50" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW</text>'
+      // Linha do domínio logo abaixo
+      const ySm = y + Math.round(size * 0.9)
+      svg += '<text x="' + cx + '" y="' + ySm + '" font-size="' + sm + '" fill="white" fill-opacity="0.65" text-anchor="middle" stroke="#000000" stroke-width="1.5" stroke-opacity="0.40" paint-order="stroke" transform="rotate(-38,' + cx + ',' + ySm + ')">figurinha-copa2026.com</text>'
+    }
   }
-  for (const f of sp) {
-    const y = Math.round(th * f), cx = Math.round(tw / 2)
-    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + sm + '" fill="white" fill-opacity="0.80" text-anchor="middle" stroke="#000000" stroke-width="2" stroke-opacity="0.50" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">figurinha-copa2026.com</text>'
-  }
+
   return svg + '</svg>'
 }

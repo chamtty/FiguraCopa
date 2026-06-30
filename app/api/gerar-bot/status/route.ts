@@ -38,8 +38,10 @@ export async function GET(req: NextRequest) {
     } = await fetch(blobs[0].url).then(r => r.json())
 
     if (meta.status === 'done') {
+      // Fallback: usa o host do request se NEXT_PUBLIC_APP_URL não estiver configurado
       const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
-      const viewUrl = meta.viewUrl || (appUrl ? `${appUrl}/view/${id}` : '')
+        || `https://${req.headers.get('host') || ''}`
+      const viewUrl = meta.viewUrl || `${appUrl}/view/${id}`
       return NextResponse.json({
         status:      'done',
         viewUrl,
