@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
         input: {
           prompt:           promptLines.join('\n'),
           input_images:     [templateBlobAsset.url, tempPhotoUrl],
-          aspect_ratio:     '3:4',
+          aspect_ratio:     '1024x1536',
           quality:          'medium',  // high ultrapassa 120s de maxDuration
           output_format:    'png',     // PNG intermediário evita dupla compressão JPEG
           moderation:       'low',     // bypassa bloqueio de fotos de crianças/adolescentes
@@ -186,11 +186,4 @@ function buildWatermarkSvg(tw: number, th: number): string {
   let svg = '<svg width="' + tw + '" height="' + th + '" xmlns="http://www.w3.org/2000/svg">'
   for (const f of bp) {
     const y = Math.round(th * f), cx = Math.round(tw / 2)
-    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.82" font-weight="bold" text-anchor="middle" stroke="#000000" stroke-width="4" stroke-opacity="0.55" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">PREVIEW - PREVIEW</text>'
-  }
-  for (const f of sp) {
-    const y = Math.round(th * f), cx = Math.round(tw / 2)
-    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + sm + '" fill="white" fill-opacity="0.80" text-anchor="middle" stroke="#000000" stroke-width="2" stroke-opacity="0.50" paint-order="stroke" transform="rotate(-38,' + cx + ',' + y + ')">figurinha-copa2026.com</text>'
-  }
-  return svg + '</svg>'
-}
+    svg += '<text x="' + cx + '" y="' + y + '" font-size="' + size + '" fill="white" fill-opacity="0.82" font-weight="bold" text-anchor="middle" stroke="#000000" stroke-width="4" stroke

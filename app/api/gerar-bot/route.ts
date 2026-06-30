@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
           input: {
             prompt:           promptLines.join('\n'),
             input_images:     [templateBlobAsset.url, tempPhotoBlob.url],
-            aspect_ratio:     '3:4',
+            aspect_ratio:     '1024x1536',
             quality:          'medium',
             output_format:    'png',
             moderation:       'low',
