@@ -4,8 +4,8 @@ import { list, del } from '@vercel/blob'
 export const maxDuration = 60
 
 // Chamado pelo Vercel Cron (vercel.json) diariamente às 04:00 UTC.
-// Remove figurinhas não pagas com mais de 24h do Blob para economizar espaço.
-// Vercel injeta automaticamente o header Authorization: Bearer CRON_SECRET.
+// Remove figurinhas não pagas com mais de 24h do Blob.
+// Vercel injeta automaticamente: Authorization: Bearer CRON_SECRET
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -26,50 +26,89 @@ export async function GET(req: NextRequest) {
     cursor = next
 
     for (const metaBlob of blobs) {
-      // Vercel Blob expõe uploadedAt; usa createdAt do JSON como fallback
+      // Pula arquivos criados nas últimas 24h
       if (metaBlob.uploadedAt.getTime() > cutoff) continue
 
-      let meta: { email?: string; blobUrl?: string } = {}
-      try { meta = await fetch(metaBlob.url).then(r => r.json()) } catch { continue }
+      let meta: {
+        email?: string
+        phone?: string
+        blobUrl?: string
+        previewUrl?: string
+      } = {}
+      try {
+        meta = await fetch(metaBlob.url).then(r => r.json())
+      } catch {
+        continue
+      }
 
       const id = metaBlob.pathname
         .replace('figurinhas/meta/', '')
         .replace('.json', '')
 
-      // Não apaga se o lead já pagou
+      // ── Verifica se já pagou (email-idx OU phone-idx) ─────────
       let isPaid = false
+
       if (meta.email) {
         const emailKey = meta.email.toLowerCase().replace('@', '--at--')
         try {
-          const { blobs: idxBlobs } = await list({
-            prefix: `figurinhas/idx/${emailKey}/${id}`,
-          })
-          for (const idxBlob of idxBlobs) {
-            const d: { paid?: boolean } = await fetch(idxBlob.url).then(r => r.json())
+          const { blobs: idxBlobs } = await list({ prefix: `figurinhas/idx/${emailKey}/${id}` })
+          for (const b of idxBlobs) {
+            const d: { paid?: boolean } = await fetch(b.url).then(r => r.json())
             if (d.paid) { isPaid = true; break }
           }
         } catch { /* ignora */ }
       }
+
+      if (!isPaid && meta.phone) {
+        const digits = meta.phone.replace(/\D/g, '')
+        try {
+          const { blobs: idxBlobs } = await list({ prefix: `figurinhas/idx-phone/${digits}/${id}` })
+          for (const b of idxBlobs) {
+            const d: { paid?: boolean } = await fetch(b.url).then(r => r.json())
+            if (d.paid) { isPaid = true; break }
+          }
+        } catch { /* ignora */ }
+      }
+
       if (isPaid) continue
 
-      // Coleta todas as URLs a deletar: figurinha + meta + index
+      // ── Coleta tudo a deletar ─────────────────────────────────
       const toDelete: string[] = [metaBlob.url]
+
+      // Figurinha limpa
       if (meta.blobUrl) toDelete.push(meta.blobUrl)
 
+      // Preview com watermark
+      if (meta.previewUrl) toDelete.push(meta.previewUrl)
+
+      // Email index
       if (meta.email) {
         const emailKey = meta.email.toLowerCase().replace('@', '--at--')
         try {
-          const { blobs: idxBlobs } = await list({
-            prefix: `figurinhas/idx/${emailKey}/${id}`,
-          })
+          const { blobs: idxBlobs } = await list({ prefix: `figurinhas/idx/${emailKey}/${id}` })
           toDelete.push(...idxBlobs.map(b => b.url))
         } catch { /* ignora */ }
       }
 
-      try { await del(toDelete); deleted++ } catch { /* ignora */ }
+      // Phone index
+      if (meta.phone) {
+        const digits = meta.phone.replace(/\D/g, '')
+        try {
+          const { blobs: idxBlobs } = await list({ prefix: `figurinhas/idx-phone/${digits}/${id}` })
+          toDelete.push(...idxBlobs.map(b => b.url))
+        } catch { /* ignora */ }
+      }
+
+      try {
+        await del(toDelete)
+        deleted++
+        console.log('[cleanup] deletada:', id, '| blobs:', toDelete.length)
+      } catch (e) {
+        console.warn('[cleanup] erro ao deletar', id, e)
+      }
     }
   } while (cursor)
 
-  console.log('[cleanup] deletadas:', deleted, 'cutoff:', new Date(cutoff).toISOString())
+  console.log('[cleanup] total deletadas:', deleted, '| cutoff:', new Date(cutoff).toISOString())
   return NextResponse.json({ deleted, cutoff: new Date(cutoff).toISOString() })
 }
