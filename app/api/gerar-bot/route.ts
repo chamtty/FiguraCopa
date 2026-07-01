@@ -67,23 +67,33 @@ export async function POST(req: NextRequest) {
       email   = '',
     } = body as Record<string, string>
 
-    if (!photoUrl || !nome.trim() || !clube.trim()) {
+    if (!photoUrl || !nome.trim()) {
       return NextResponse.json(
-        { error: 'Campos obrigatórios: photoUrl, nome, clube' },
+        { error: 'Campos obrigatórios: photoUrl, nome' },
         { status: 400 }
       )
     }
 
-    // Formata dados
+    // Formata dados — todos os campos exceto nome são opcionais
     const alturaNum  = parseFloat(altura)
-    const alturaStr  = alturaNum > 3
-      ? (alturaNum / 100).toFixed(2).replace('.', ',') + 'm'
-      : alturaNum.toFixed(2).replace('.', ',') + 'm'
-    const dd         = String(parseInt(dia)).padStart(2, '0')
-    const mm         = String(parseInt(mes)).padStart(2, '0')
+    const alturaStr  = isNaN(alturaNum) || alturaNum === 0
+      ? '—'
+      : alturaNum > 3
+        ? (alturaNum / 100).toFixed(2).replace('.', ',') + 'm'
+        : alturaNum.toFixed(2).replace('.', ',') + 'm'
+    const pesoStr    = peso && parseFloat(peso) > 0 ? parseFloat(peso).toFixed(0) + 'kg' : '—'
+    const diaNum     = parseInt(dia)
+    const mesNum     = parseInt(mes)
+    const anoNum     = parseInt(ano)
+    const dataStr    = (!isNaN(diaNum) && !isNaN(mesNum) && !isNaN(anoNum) && anoNum > 1900)
+      ? String(diaNum).padStart(2, '0') + '-' + String(mesNum).padStart(2, '0') + '-' + anoNum
+      : '—'
     const nomeUpper  = nome.trim().toUpperCase()
-    const clubeUpper = clube.trim().toUpperCase() + ' (BRA)'
-    const infoLine   = `${dd}-${mm}-${ano} | ${alturaStr} | ${peso}kg`
+    // Se clube não informado, usa BRASIL como padrão
+    const clubeBase  = clube.trim() || 'BRASIL'
+    const clubeUpper = clubeBase.toUpperCase() + ' (BRA)'
+    // Monta linha de info omitindo campos ausentes (sem fallback "—")
+    const infoLine = [dataStr, alturaStr, pesoStr].filter(p => p !== '—').join(' | ')
 
     // Carrega template
     const templatePath = path.join(process.cwd(), 'public', 'template.jpg')
