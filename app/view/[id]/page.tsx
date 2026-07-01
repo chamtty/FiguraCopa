@@ -119,6 +119,16 @@ export default async function ViewPage({ params }: PageProps) {
           </div>
         </div>
 
+        {/* Refazer */}
+        <div style={{ background: 'white', borderRadius: 16, padding: '16px 18px', marginBottom: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', textAlign: 'center', boxSizing: 'border-box' as const }}>
+          <p style={{ fontSize: 14, fontWeight: 800, color: '#374151', margin: '0 0 10px' }}>
+            😕 Não gostou do resultado?
+          </p>
+          <a href="/criar" style={{ display: 'block', width: '100%', background: '#f3f4f6', color: '#374151', border: '2px solid #d1d5db', borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: 'pointer', padding: '12px 0', letterSpacing: 0.3, textDecoration: 'none', boxSizing: 'border-box' as const }}>
+            🔄 Refazer figurinha
+          </a>
+        </div>
+
         {/* Bloco preço + CTA */}
         <div style={{ background: 'white', borderRadius: 20, padding: '20px 16px', marginBottom: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.10)', boxSizing: 'border-box' as const }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 4 }}>
